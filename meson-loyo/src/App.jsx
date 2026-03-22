@@ -31,7 +31,6 @@ const TURNOS = {
   manana:   { label:"Mañanas",      horas:2,    start:"07:00", end:"09:00", bg:"#F3E5F5", color:"#6A1B9A", emoji:"🌅", abr:"MAN"   },
   mediodia: { label:"Mediodía",     horas:6.5,  start:"11:30", end:"18:00", bg:"#FFF8E1", color:"#E65100", emoji:"☀️", abr:"MED"   },
   noche:    { label:"Noche",        horas:6,    start:"18:00", end:"24:00", bg:"#E3F2FD", color:"#1565C0", emoji:"🌙", abr:"NOC"   },
-  doble:    { label:"Turno Doble",  horas:12.5, start:"11:30", end:"24:00", bg:"#FCE4EC", color:"#AD1457", emoji:"⚡", abr:"DOBLE" },
   libre:    { label:"Libre",        horas:0,    start:"-",     end:"-",     bg:"#F5F5F5", color:"#9E9E9E", emoji:"🏖️",abr:"L"     },
 };
 
@@ -336,6 +335,7 @@ export default function App() {
   const [notif,   setNotif]   = useState(null);
   const [delConf, setDelConf] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [festivos, setFestivos] = useState([]);  // array de strings "YYYY-MM-DD"
 
   // ── Cargar y escuchar cambios en Firebase en tiempo real ──────────────────
   useEffect(()=>{
@@ -369,7 +369,13 @@ export default function App() {
       const data=snap.val();
       setCambios(data?Object.values(data):[]);
     });
-    return ()=>{ unsubShifts(); unsubCambios(); };
+    // Festivos
+    const festivosRef = ref(db, "festivos");
+    const unsubFestivos = onValue(festivosRef, snap=>{
+      const data=snap.val();
+      setFestivos(data?Object.values(data):[]);
+    });
+    return ()=>{ unsubShifts(); unsubCambios(); unsubFestivos(); };
   }, [year, month]);
 
   // ── Si es empleado → vista reducida ──────────────────────────────────────
@@ -389,6 +395,16 @@ export default function App() {
   const canSeeHoras = user.usuario==="javier"||user.usuario==="jaime";
   const dim = daysInMonth(year,month);
   const fd  = firstDayOfMonth(year,month);
+
+  // Helper: is day festivo
+  function esFestivo(day){ return festivos.includes(`${year}-${String(month+1).padStart(2,"0")}-${String(day).padStart(2,"0")}`); }
+  function toggleFestivo(day){
+    const key=`${year}-${String(month+1).padStart(2,"0")}-${String(day).padStart(2,"0")}`;
+    const newFest=festivos.includes(key)?festivos.filter(f=>f!==key):[...festivos,key];
+    // Save all festivos as object in Firebase
+    const obj={}; newFest.forEach((f,i)=>obj[i]=f);
+    set(ref(db,"festivos"), Object.keys(obj).length>0?obj:null);
+  }
 
   function notify(msg,type="ok"){ setNotif({msg,type}); setTimeout(()=>setNotif(null),3000); }
 
@@ -571,30 +587,122 @@ export default function App() {
   }
 
   function ViewHoras(){
-    return <div style={{ display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(255px,1fr))",gap:14 }}>
-      {emps.map(emp=>{
-        const h=horas(emp.id),d=diasT(emp.id),pct=Math.min(100,Math.round((h/130)*100));
-        const cnt={};
-        for(let day=1;day<=dim;day++){ const arr=shifts[emp.id]?.[day]||["libre"]; const key=esLibre(arr)?"libre":arr.filter(t=>t!=="libre").join("+"); cnt[key]=(cnt[key]||0)+1; }
-        return <div key={emp.id} style={{ background:"#fff",borderRadius:18,padding:20,boxShadow:"0 2px 12px rgba(0,0,0,.06)" }}>
-          <div style={{ display:"flex",alignItems:"center",gap:12,marginBottom:16 }}>
-            <div style={{ width:44,height:44,borderRadius:"50%",background:emp.color,display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontWeight:900,fontSize:19,flexShrink:0 }}>{emp.name.charAt(0)}</div>
-            <div><div style={{ fontWeight:800,fontSize:16 }}>{emp.name}</div><div style={{ fontSize:12,color:"#aaa" }}>{MESES[month]} {year}</div></div>
+    // Calcular estadísticas detalladas por empleado
+    function statsEmp(empId){
+      let hTot=0, hMan=0, hMed=0, hNoc=0, hExtra=0;
+      let dTot=0, dFinde=0, dFestivo=0, dLab=0;
+      let dManana=0, dMediodia=0, dNoche=0;
+      for(let d=1;d<=dim;d++){
+        const arr=shifts[empId]?.[d]||["libre"];
+        if(esLibre(arr)) continue;
+        const dow=dowIndex(year,month,d);
+        const finde=dow>=5;
+        const fest=esFestivo(d);
+        const h=horasDia(arr);
+        hTot+=h;
+        dTot++;
+        if(finde||fest){ if(fest) dFestivo++; else dFinde++; hExtra+=h; }
+        else dLab++;
+        arr.filter(t=>t!=="libre").forEach(t=>{
+          if(t==="manana")        { hMan+=TURNOS.manana.horas;   dManana++; }
+          else if(t==="mediodia") { hMed+=TURNOS.mediodia.horas; dMediodia++; }
+          else if(t==="noche")    { hNoc+=TURNOS.noche.horas;    dNoche++; }
+        });
+      }
+      return {hTot,hMan,hMed,hNoc,hExtra,dTot,dFinde,dFestivo,dLab,dManana,dMediodia,dNoche};
+    }
+
+    const statRow = (label,val,color,sub) => (
+      <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:"7px 0",borderBottom:"1px solid #f5f5f5" }}>
+        <span style={{ fontSize:13,color:"#666" }}>{label}</span>
+        <span style={{ fontWeight:800,fontSize:14,color:color||"#1B2432" }}>{val}{sub&&<span style={{ fontSize:11,fontWeight:400,color:"#aaa",marginLeft:4 }}>{sub}</span>}</span>
+      </div>
+    );
+
+    return <div>
+      {/* Gestión de festivos — solo admin */}
+      {user.rol==="admin"&&(
+        <div style={{ background:"#fff",borderRadius:16,padding:20,marginBottom:24,boxShadow:"0 2px 12px rgba(0,0,0,.06)" }}>
+          <div style={{ fontWeight:800,fontSize:16,marginBottom:4 }}>📅 Festivos de {MESES[month]} {year}</div>
+          <div style={{ fontSize:13,color:"#888",marginBottom:14 }}>Pulsa los días festivos para marcarlos. Se reflejarán en las estadísticas de todos.</div>
+          <div style={{ display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:4,marginBottom:12 }}>
+            {DIAS.map(d=><div key={d} style={{ textAlign:"center",fontSize:10,fontWeight:700,color:"#bbb",padding:"4px 0" }}>{d}</div>)}
+            {Array.from({length:fd}).map((_,i)=><div key={`e${i}`}/>)}
+            {Array.from({length:dim}).map((_,i)=>{
+              const d=i+1, dow=dowIndex(year,month,d);
+              const fest=esFestivo(d), finde=dow>=5;
+              return <button key={d} onClick={()=>toggleFestivo(d)} style={{
+                padding:"6px 2px",textAlign:"center",borderRadius:8,border:"none",cursor:"pointer",
+                background:fest?"#C62828":finde?"#2a3244":"#f5f5f5",
+                color:fest?"#fff":finde?"#aaa":"#555",fontWeight:fest?800:400,fontSize:12,
+                outline:fest?"2px solid #C62828":"none"
+              }}>
+                {d}{fest&&<div style={{ fontSize:8,lineHeight:1 }}>fest</div>}
+              </button>;
+            })}
           </div>
-          <div style={{ display:"flex",gap:10,marginBottom:14 }}>
-            <div style={{ flex:1,background:"#F4F1EC",borderRadius:12,padding:10,textAlign:"center" }}><div style={{ fontSize:28,fontWeight:900,color:"#E07A5F" }}>{h}</div><div style={{ fontSize:10,color:"#aaa",fontWeight:700 }}>HORAS</div></div>
-            <div style={{ flex:1,background:"#F4F1EC",borderRadius:12,padding:10,textAlign:"center" }}><div style={{ fontSize:28,fontWeight:900,color:"#1B2432" }}>{d}</div><div style={{ fontSize:10,color:"#aaa",fontWeight:700 }}>DÍAS</div></div>
-          </div>
-          <div style={{ marginBottom:12 }}>
-            <div style={{ display:"flex",justifyContent:"space-between",marginBottom:4,fontSize:11 }}><span style={{ color:"#aaa" }}>Ref. 130h/mes</span><span style={{ fontWeight:700 }}>{pct}%</span></div>
-            <div style={{ background:"#eee",borderRadius:6,height:8,overflow:"hidden" }}><div style={{ width:`${pct}%`,height:"100%",background:emp.color,borderRadius:6,transition:"width .5s" }}/></div>
-          </div>
-          <div style={{ display:"flex",gap:6,flexWrap:"wrap" }}>
-            {Object.entries(cnt).map(([key,c])=>{ const info=key==="libre"?TURNOS.libre:abrDia(key.split("+")); const label=key==="libre"?"Libre":key.split("+").map(t=>TURNOS[t]?.label).join("+");
-              return <span key={key} style={{ background:info.bg,color:info.color,borderRadius:6,padding:"3px 8px",fontSize:11,fontWeight:700,border:`1px solid ${info.color}22` }}>{info.emoji} {label}: {c}</span>; })}
-          </div>
-        </div>;
-      })}
+          {festivos.filter(f=>f.startsWith(`${year}-${String(month+1).padStart(2,"0")}`)).length===0
+            ?<div style={{ fontSize:12,color:"#ccc" }}>Sin festivos marcados este mes</div>
+            :<div style={{ display:"flex",gap:6,flexWrap:"wrap" }}>
+              {festivos.filter(f=>f.startsWith(`${year}-${String(month+1).padStart(2,"0")}`)).sort().map(f=>{
+                const d=parseInt(f.split("-")[2]);
+                return <span key={f} style={{ background:"#FFEBEE",color:"#C62828",borderRadius:6,padding:"3px 10px",fontSize:12,fontWeight:700 }}>
+                  Día {d} — {DIAS[dowIndex(year,month,d)]}
+                </span>;
+              })}
+            </div>
+          }
+        </div>
+      )}
+
+      {/* Tarjetas por empleado */}
+      <div style={{ display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(300px,1fr))",gap:14 }}>
+        {emps.map(emp=>{
+          const {hTot,hMan,hMed,hNoc,hExtra,dTot,dFinde,dFestivo,dLab,dManana,dMediodia,dNoche}=statsEmp(emp.id);
+          const pct=Math.min(100,Math.round((hTot/130)*100));
+          return <div key={emp.id} style={{ background:"#fff",borderRadius:18,padding:20,boxShadow:"0 2px 12px rgba(0,0,0,.06)" }}>
+            {/* Cabecera */}
+            <div style={{ display:"flex",alignItems:"center",gap:12,marginBottom:16 }}>
+              <div style={{ width:44,height:44,borderRadius:"50%",background:emp.color,display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontWeight:900,fontSize:19,flexShrink:0 }}>{emp.name.charAt(0)}</div>
+              <div><div style={{ fontWeight:800,fontSize:16 }}>{emp.name}</div><div style={{ fontSize:12,color:"#aaa" }}>{MESES[month]} {year}</div></div>
+            </div>
+
+            {/* Totales grandes */}
+            <div style={{ display:"flex",gap:8,marginBottom:14 }}>
+              <div style={{ flex:1,background:"#F4F1EC",borderRadius:12,padding:"10px 8px",textAlign:"center" }}><div style={{ fontSize:26,fontWeight:900,color:"#E07A5F" }}>{hTot}</div><div style={{ fontSize:10,color:"#aaa",fontWeight:700 }}>HORAS TOT.</div></div>
+              <div style={{ flex:1,background:"#F4F1EC",borderRadius:12,padding:"10px 8px",textAlign:"center" }}><div style={{ fontSize:26,fontWeight:900,color:"#1B2432" }}>{dTot}</div><div style={{ fontSize:10,color:"#aaa",fontWeight:700 }}>DÍAS TOT.</div></div>
+            </div>
+
+            {/* Barra progreso */}
+            <div style={{ marginBottom:14 }}>
+              <div style={{ display:"flex",justifyContent:"space-between",marginBottom:4,fontSize:11 }}><span style={{ color:"#aaa" }}>Ref. 130h/mes</span><span style={{ fontWeight:700 }}>{pct}%</span></div>
+              <div style={{ background:"#eee",borderRadius:6,height:8,overflow:"hidden" }}><div style={{ width:`${pct}%`,height:"100%",background:emp.color,borderRadius:6,transition:"width .5s" }}/></div>
+            </div>
+
+            {/* Desglose por tipo de turno */}
+            <div style={{ background:"#F8F9FA",borderRadius:12,padding:"10px 14px",marginBottom:12 }}>
+              <div style={{ fontSize:11,fontWeight:700,color:"#aaa",marginBottom:8,letterSpacing:.5 }}>JORNADAS POR TURNO</div>
+              {statRow("🌅 Mañanas",   `${dManana} jornadas`, "#6A1B9A", `(${hMan}h)`)}
+              {statRow("☀️ Mediodía",  `${dMediodia} jornadas`, "#E65100", `(${hMed}h)`)}
+              {statRow("🌙 Noche",     `${dNoche} jornadas`, "#1565C0", `(${hNoc}h)`)}
+              {dManana===0&&dMediodia===0&&dNoche===0&&<div style={{ fontSize:12,color:"#ccc" }}>Sin jornadas registradas</div>}
+            </div>
+
+            {/* Desglose por tipo de día */}
+            <div style={{ background:"#F8F9FA",borderRadius:12,padding:"10px 14px" }}>
+              <div style={{ fontSize:11,fontWeight:700,color:"#aaa",marginBottom:8,letterSpacing:.5 }}>DÍAS POR TIPO</div>
+              {statRow("📅 Laborables", dLab, "#2D6A4F", `(${parseFloat((hTot-hExtra).toFixed(1))}h)`)}
+              {statRow("📅 Fines de semana", dFinde, "#1565C0", `(${parseFloat(((hExtra/(dFinde+dFestivo)||0)*dFinde).toFixed(1))}h)`)}
+              {statRow("🔴 Festivos", dFestivo, "#C62828", `(${parseFloat(((hExtra/(dFinde+dFestivo)||0)*dFestivo).toFixed(1))}h)`)}
+              {(dFinde>0||dFestivo>0)&&(
+                <div style={{ marginTop:8,padding:"6px 10px",background:"#FFF8E1",borderRadius:8,fontSize:12,fontWeight:700,color:"#E65100",display:"flex",justifyContent:"space-between" }}>
+                  <span>⚡ Horas fin sem. + festivos</span><span>{parseFloat(hExtra.toFixed(1))}h</span>
+                </div>
+              )}
+            </div>
+          </div>;
+        })}
+      </div>
     </div>;
   }
 
