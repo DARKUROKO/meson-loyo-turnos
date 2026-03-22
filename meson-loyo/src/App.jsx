@@ -629,8 +629,120 @@ export default function App() {
   ];
 
   // ── VISTAS ────────────────────────────────────────────────────────────────
+
+  function imprimirDia(){
+    const TURNOS_PRINT = {
+      manana:   { label:"Mañanas",  start:"07:00", end:"09:00", color:"#6A1B9A", bg:"#F3E5F5" },
+      mediodia: { label:"Mediodía", start:"11:30", end:"18:00", color:"#E65100", bg:"#FFF8E1" },
+      noche:    { label:"Noche",    start:"18:00", end:"24:00", color:"#1565C0", bg:"#E3F2FD" },
+    };
+    const diasSemana = ["Lun","Mar","Mié","Jue","Vie","Sáb","Dom"];
+    const meses = ["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];
+
+    // Build rows: one per day
+    let rows = "";
+    for(let d=1;d<=dim;d++){
+      const dow=dowIndex(year,month,d);
+      const isWe=dow>=5;
+      const trabajando=emps.filter(e=>!esLibre(shifts[e.id]?.[d]));
+      if(trabajando.length===0) continue; // skip fully libre days
+
+      // Group by turno
+      const grupos = {};
+      trabajando.forEach(e=>{
+        const arr=(shifts[e.id][d]||["libre"]).filter(t=>t!=="libre");
+        arr.forEach(t=>{
+          if(!grupos[t]) grupos[t]=[];
+          grupos[t].push(e.name);
+        });
+      });
+
+      const turnosHtml = Object.entries(grupos).map(([tipo,names])=>{
+        const t=TURNOS_PRINT[tipo];
+        if(!t) return "";
+        return `<div style="margin-bottom:4px">
+          <span style="display:inline-block;background:${t.bg};color:${t.color};padding:2px 8px;border-radius:5px;font-weight:700;font-size:11px;margin-bottom:3px">${t.label} · ${t.start}–${t.end}</span>
+          <div style="padding-left:8px;font-size:12px;color:#333">${names.join(", ")}</div>
+        </div>`;
+      }).join("");
+
+      rows += `
+        <tr style="background:${isWe?"#f8f8f8":"#fff"};border-bottom:1px solid #eee">
+          <td style="padding:8px 12px;font-weight:700;color:${isWe?"#1B2432":"#333"};white-space:nowrap;vertical-align:top;width:80px">
+            <span style="font-size:18px;font-weight:900">${d}</span>
+            <span style="font-size:11px;color:#888;margin-left:4px">${diasSemana[dow]}</span>
+            ${isWe?'<div style="font-size:9px;color:#888;margin-top:2px">Fin sem.</div>':""}
+          </td>
+          <td style="padding:8px 12px;vertical-align:top">${turnosHtml||'<span style="color:#ccc;font-size:12px">Sin asignar</span>'}</td>
+          <td style="padding:8px 12px;text-align:center;vertical-align:top;color:#555;font-size:12px;white-space:nowrap">${trabajando.length} camarero${trabajando.length!==1?"s":""}</td>
+        </tr>`;
+    }
+
+    const html = `<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8"/>
+  <title>Turnos ${meses[month]} ${year} — Mesón do Loyo</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: 'Arial', sans-serif; color: #1a1a1a; background: #fff; }
+    @media print {
+      body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+      .no-print { display: none; }
+    }
+    .header { background: #1B2432; color: #fff; padding: 20px 32px; display: flex; align-items: center; justify-content: space-between; }
+    .header h1 { font-size: 22px; font-weight: 800; }
+    .header p { font-size: 13px; color: #aaa; margin-top: 2px; }
+    .badge { background: #E07A5F; border-radius: 8px; padding: 6px 14px; font-size: 14px; font-weight: 700; }
+    table { width: 100%; border-collapse: collapse; margin-top: 0; }
+    thead { background: #2a3244; color: #fff; }
+    thead th { padding: 10px 12px; font-size: 12px; font-weight: 700; text-align: left; }
+    .print-btn { display: block; margin: 20px auto; padding: 12px 32px; background: #E07A5F; color: #fff; border: none; border-radius: 10px; font-size: 16px; font-weight: 700; cursor: pointer; }
+    .footer { padding: 16px 32px; font-size: 11px; color: #aaa; text-align: center; margin-top: 8px; }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <div>
+      <h1>🍽️ Mesón do Loyo</h1>
+      <p>Paradela, Lugo · Turnos de ${meses[month]} ${year}</p>
+    </div>
+    <div class="badge">${meses[month]} ${year}</div>
+  </div>
+  <div class="no-print" style="text-align:center;padding:16px">
+    <button class="print-btn" onclick="window.print()">🖨️ Imprimir / Guardar PDF</button>
+  </div>
+  <table>
+    <thead>
+      <tr>
+        <th style="width:90px">Día</th>
+        <th>Turnos y camareros</th>
+        <th style="width:100px;text-align:center">Total</th>
+      </tr>
+    </thead>
+    <tbody>${rows}</tbody>
+  </table>
+  <div class="footer">Generado desde Mesón do Loyo · Gestión de Turnos</div>
+  <script>
+    // Auto-print if ?print in URL
+    if(window.location.search.includes("print")) window.print();
+  </script>
+</body>
+</html>`;
+
+    const win = window.open("","_blank");
+    win.document.write(html);
+    win.document.close();
+  }
+
   function ViewDia(){
     return (
+      <div>
+      <div style={{ display:"flex",justifyContent:"flex-end",marginBottom:12 }}>
+        <button onClick={imprimirDia} style={{ background:"#1B2432",color:"#fff",border:"none",borderRadius:10,padding:"9px 18px",fontWeight:700,cursor:"pointer",fontSize:13,display:"flex",alignItems:"center",gap:7 }}>
+          🖨️ Imprimir / Descargar
+        </button>
+      </div>
       <div style={{ display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(290px,1fr))",gap:12 }}>
         {Array.from({length:dim},(_,i)=>{
           const day=i+1, dow=dowIndex(year,month,day);
@@ -677,6 +789,7 @@ export default function App() {
           );
         })}
       </div>
+      </div>
     );
   }
 
@@ -710,11 +823,11 @@ export default function App() {
   function ViewTabla(){
     return <div>
       <p style={{ margin:"0 0 12px",color:"#888",fontSize:13 }}>MAN=Mañanas · M=Mediodía · N=Noche · L=Libre{canEdit?" · Clic para editar":""}</p>
-      <div style={{ overflowX:"auto" }}>
-        <table style={{ borderCollapse:"collapse",background:"#fff",borderRadius:16,overflow:"hidden",boxShadow:"0 2px 14px rgba(0,0,0,.06)",fontSize:11,minWidth:700 }}>
+      <div style={{ overflowX:"auto",borderRadius:16,boxShadow:"0 2px 14px rgba(0,0,0,.06)" }}>
+        <table style={{ borderCollapse:"separate",borderSpacing:0,background:"#fff",fontSize:11,minWidth:700,width:"100%" }}>
           <thead>
             <tr style={{ background:"#1B2432",color:"#fff" }}>
-              <th style={{ padding:"12px 16px",textAlign:"left",minWidth:130,fontWeight:700,position:"sticky",left:0,background:"#1B2432",zIndex:2 }}>Empleado</th>
+              <th style={{ padding:"12px 16px",textAlign:"left",minWidth:130,fontWeight:700,position:"sticky",left:0,background:"#1B2432",zIndex:2,boxShadow:"2px 0 6px rgba(0,0,0,.2)" }}>Empleado</th>
               {Array.from({length:dim},(_,i)=>{ const d=i+1,dow=dowIndex(year,month,d),isWe=dow>=5,isT=d===today.getDate()&&month===today.getMonth()&&year===today.getFullYear();
                 return <th key={d} style={{ padding:"6px 3px",textAlign:"center",minWidth:32,background:isT?"#E07A5F":isWe?"#2a3244":"#1B2432" }}><div style={{ fontSize:9,opacity:.65 }}>{DIAS[dow]}</div><div>{d}</div></th>; })}
               <th style={{ padding:"10px 8px",textAlign:"center",minWidth:48 }}>Días</th>
@@ -724,7 +837,7 @@ export default function App() {
           <tbody>
             {emps.map((emp,ri)=>(
               <tr key={emp.id} style={{ background:ri%2===0?"#fff":"#fafafa" }}>
-                <td style={{ padding:"8px 16px",position:"sticky",left:0,background:ri%2===0?"#fff":"#fafafa",zIndex:1 }}>
+                <td style={{ padding:"8px 16px",position:"sticky",left:0,background:ri%2===0?"#fff":"#fafafa",zIndex:1,boxShadow:"2px 0 6px rgba(0,0,0,.08)" }}>
                   <div style={{ display:"flex",alignItems:"center",gap:7 }}><div style={{ width:9,height:9,borderRadius:"50%",background:emp.color,flexShrink:0 }}/><span style={{ fontWeight:600,whiteSpace:"nowrap" }}>{emp.name}</span></div>
                 </td>
                 {Array.from({length:dim},(_,i)=>{ const day=i+1,arr=shifts[emp.id]?.[day]||["libre"],info=abrDia(arr);
@@ -736,7 +849,7 @@ export default function App() {
               </tr>
             ))}
             <tr style={{ background:"#1B2432",color:"#fff",fontWeight:700 }}>
-              <td style={{ padding:"8px 16px",fontSize:11,position:"sticky",left:0,background:"#1B2432" }}>Total trabajan</td>
+              <td style={{ padding:"8px 16px",fontSize:11,position:"sticky",left:0,background:"#1B2432",boxShadow:"2px 0 6px rgba(0,0,0,.2)" }}>Total trabajan</td>
               {Array.from({length:dim},(_,i)=>{ const day=i+1,cnt=emps.filter(e=>!esLibre(shifts[e.id]?.[day])).length;
                 return <td key={day} style={{ textAlign:"center",fontSize:12,padding:"6px 2px" }}>
                   <span style={{ background:cnt>=5?"#E07A5F":cnt>=3?"rgba(242,204,143,.3)":"transparent",color:cnt>=5?"#fff":cnt>=3?"#c8a600":"#aaa",borderRadius:5,padding:"2px 3px",fontWeight:800 }}>{cnt}</span>
