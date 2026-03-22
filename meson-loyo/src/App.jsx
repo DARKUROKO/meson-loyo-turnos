@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { db } from "./firebase";
-import { ref, onValue, set, update } from "firebase/database";
+import { ref, onValue, set } from "firebase/database";
 
 // ─── EMPLEADOS ───────────────────────────────────────────────────────────────
 const EMPLOYEES_INIT = [
@@ -32,6 +32,13 @@ const TURNOS = {
   mediodia: { label:"Mediodía",     horas:6.5,  start:"11:30", end:"18:00", bg:"#FFF8E1", color:"#E65100", emoji:"☀️", abr:"MED"   },
   noche:    { label:"Noche",        horas:6,    start:"18:00", end:"24:00", bg:"#E3F2FD", color:"#1565C0", emoji:"🌙", abr:"NOC"   },
   libre:    { label:"Libre",        horas:0,    start:"-",     end:"-",     bg:"#F5F5F5", color:"#9E9E9E", emoji:"🏖️",abr:"L"     },
+};
+
+// Tarifas por defecto (€ por jornada). Se pueden personalizar por empleado.
+const TARIFAS_DEFAULT = {
+  manana:   { lab:15,  finde:20,  festivo:25  },
+  mediodia: { lab:50,  finde:65,  festivo:80  },
+  noche:    { lab:45,  finde:60,  festivo:75  },
 };
 
 const DIAS  = ["Lun","Mar","Mié","Jue","Vie","Sáb","Dom"];
@@ -262,7 +269,7 @@ function ModalTurno({ emp, day, month, currentArr, onSave, onClose }) {
         <div style={{ color:"#aaa",fontSize:13,marginBottom:6 }}>{day} de {MESES[month]}</div>
         <div style={{ fontSize:12,color:"#888",marginBottom:16,background:"#F4F1EC",borderRadius:8,padding:"6px 10px" }}>💡 Puedes seleccionar <b>varios turnos</b> el mismo día</div>
         <div style={{ display:"flex",flexDirection:"column",gap:9 }}>
-          {Object.entries(TURNOS).filter(([k])=>k!=="doble").map(([k,v])=>{
+          {Object.entries(TURNOS).map(([k,v])=>{
             const sel=k==="libre"?selected.length===0:selected.includes(k);
             return (
               <button key={k} onClick={()=>toggle(k)} style={{ background:sel?v.bg:"#f8f8f8",border:`2px solid ${sel?v.color:"transparent"}`,borderRadius:12,padding:"11px 16px",cursor:"pointer",textAlign:"left",display:"flex",alignItems:"center",gap:12 }}>
@@ -318,6 +325,145 @@ function ModalCambio({ emps, dim, month, year, shifts, initialEmp1, onConfirm, o
   );
 }
 
+
+/* ─── CONFIGURADOR DE TARIFAS ────────────────────────────────────────────── */
+function TarifasConfig({ emps, tarifas, onSave }) {
+  const [open, setOpen] = useState(false);
+  const [editEmp, setEditEmp] = useState(null); // null = tarifas base
+  const [draft, setDraft] = useState(null);
+
+  function openBase() {
+    setEditEmp(null);
+    setDraft(JSON.parse(JSON.stringify(TARIFAS_DEFAULT)));
+    // Merge with any saved base (stored as empId "base")
+    if(tarifas["base"]) setDraft(JSON.parse(JSON.stringify(tarifas["base"])));
+    setOpen(true);
+  }
+
+  function openEmp(emp) {
+    setEditEmp(emp);
+    // Start from base or employee override
+    const base = tarifas["base"] || TARIFAS_DEFAULT;
+    const empTar = tarifas[emp.id] || JSON.parse(JSON.stringify(base));
+    setDraft(JSON.parse(JSON.stringify(empTar)));
+    setOpen(true);
+  }
+
+  function setVal(tipo, tipoDia, val) {
+    setDraft(prev => ({ ...prev, [tipo]: { ...prev[tipo], [tipoDia]: parseFloat(val)||0 } }));
+  }
+
+  function save() {
+    const key = editEmp ? editEmp.id : "base";
+    const newTar = { ...tarifas, [key]: draft };
+    onSave(newTar);
+    setOpen(false);
+  }
+
+  function resetEmp(empId) {
+    const newTar = { ...tarifas };
+    delete newTar[empId];
+    onSave(newTar);
+  }
+
+  const TIPOS = [
+    { key:"manana",   label:"🌅 Mañanas"  },
+    { key:"mediodia", label:"☀️ Mediodía" },
+    { key:"noche",    label:"🌙 Noche"    },
+  ];
+  const DIAS_TIPO = [
+    { key:"lab",     label:"Laborable" },
+    { key:"finde",   label:"Fin de semana" },
+    { key:"festivo", label:"Festivo" },
+  ];
+
+  const base = tarifas["base"] || TARIFAS_DEFAULT;
+
+  return (
+    <div style={{ background:"#fff",borderRadius:16,padding:20,marginBottom:24,boxShadow:"0 2px 12px rgba(0,0,0,.06)" }}>
+      <div style={{ fontWeight:800,fontSize:16,marginBottom:4 }}>💰 Tarifas salariales</div>
+      <div style={{ fontSize:13,color:"#888",marginBottom:16 }}>Precios por jornada en €. Puedes personalizar el sueldo de cada camarero individualmente.</div>
+
+      {/* Tabla de tarifas base */}
+      <div style={{ overflowX:"auto",marginBottom:16 }}>
+        <table style={{ borderCollapse:"collapse",width:"100%",fontSize:13 }}>
+          <thead>
+            <tr style={{ background:"#F4F1EC" }}>
+              <th style={{ padding:"8px 12px",textAlign:"left",fontWeight:700 }}>Turno</th>
+              <th style={{ padding:"8px 12px",textAlign:"center",fontWeight:700 }}>📅 Laborable</th>
+              <th style={{ padding:"8px 12px",textAlign:"center",fontWeight:700 }}>📅 Fin semana</th>
+              <th style={{ padding:"8px 12px",textAlign:"center",fontWeight:700 }}>🔴 Festivo</th>
+            </tr>
+          </thead>
+          <tbody>
+            {TIPOS.map(({key,label})=>(
+              <tr key={key} style={{ borderBottom:"1px solid #f5f5f5" }}>
+                <td style={{ padding:"10px 12px",fontWeight:600 }}>{label}</td>
+                {["lab","finde","festivo"].map(d=>(
+                  <td key={d} style={{ padding:"10px 12px",textAlign:"center",fontWeight:700,color:"#2D6A4F" }}>
+                    {(base[key]?.[d]||0).toFixed(2)}€
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      <div style={{ display:"flex",gap:8,flexWrap:"wrap" }}>
+        <button onClick={openBase} style={{ background:"#1B2432",color:"#fff",border:"none",borderRadius:9,padding:"8px 16px",fontWeight:700,cursor:"pointer",fontSize:13 }}>✏️ Editar tarifas base</button>
+        {emps.map(emp=>{
+          const hasOverride = !!tarifas[emp.id];
+          return (
+            <div key={emp.id} style={{ display:"flex",alignItems:"center",gap:4 }}>
+              <button onClick={()=>openEmp(emp)} style={{ background:hasOverride?"#EDE7F6":"#f5f5f5",color:hasOverride?"#4527A0":"#555",border:hasOverride?"1.5px solid #9B5DE5":"1.5px solid #ddd",borderRadius:9,padding:"7px 13px",fontWeight:700,cursor:"pointer",fontSize:12 }}>
+                {emp.name} {hasOverride?"(personalizado)":""}
+              </button>
+              {hasOverride&&<button onClick={()=>resetEmp(emp.id)} title="Volver a tarifa base" style={{ background:"#FFF0F0",border:"none",color:"#C62828",borderRadius:7,padding:"5px 8px",cursor:"pointer",fontSize:12 }}>✕</button>}
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Modal edición */}
+      {open && draft && (
+        <div style={{ position:"fixed",inset:0,background:"rgba(0,0,0,.55)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:1000 }} onClick={()=>setOpen(false)}>
+          <div style={{ background:"#fff",borderRadius:20,padding:28,width:"92%",maxWidth:480,boxShadow:"0 24px 70px rgba(0,0,0,.25)",maxHeight:"90vh",overflowY:"auto" }} onClick={e=>e.stopPropagation()}>
+            <div style={{ fontWeight:800,fontSize:17,marginBottom:4 }}>
+              {editEmp ? `Tarifas personalizadas — ${editEmp.name}` : "Tarifas base (aplican a todos)"}
+            </div>
+            <div style={{ fontSize:13,color:"#aaa",marginBottom:20 }}>€ por jornada trabajada</div>
+
+            {TIPOS.map(({key,label})=>(
+              <div key={key} style={{ marginBottom:18 }}>
+                <div style={{ fontWeight:700,fontSize:14,marginBottom:10 }}>{label}</div>
+                <div style={{ display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:10 }}>
+                  {DIAS_TIPO.map(({key:dk,label:dl})=>(
+                    <div key={dk}>
+                      <label style={{ fontSize:11,fontWeight:700,color:"#888",display:"block",marginBottom:4 }}>{dl}</label>
+                      <div style={{ display:"flex",alignItems:"center",gap:4 }}>
+                        <input type="number" min="0" step="0.5" value={draft[key]?.[dk]||0}
+                          onChange={e=>setVal(key,dk,e.target.value)}
+                          style={{ width:"100%",border:"1.5px solid #e0e0e0",borderRadius:8,padding:"8px 10px",fontSize:14,outline:"none",fontFamily:"inherit" }}/>
+                        <span style={{ fontSize:13,color:"#aaa" }}>€</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))}
+
+            <div style={{ display:"flex",gap:10,marginTop:8 }}>
+              <button onClick={()=>setOpen(false)} style={{ flex:1,background:"#f0f0f0",border:"none",borderRadius:10,padding:12,cursor:"pointer",fontWeight:600,color:"#666" }}>Cancelar</button>
+              <button onClick={save} style={{ flex:2,background:"#E07A5F",color:"#fff",border:"none",borderRadius:10,padding:12,cursor:"pointer",fontWeight:800,fontSize:14 }}>Guardar tarifas</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 /* ═══════════════════════════════════════════════════════════════════════════
    APP PRINCIPAL
 ═══════════════════════════════════════════════════════════════════════════ */
@@ -335,6 +481,7 @@ export default function App() {
   const [notif,   setNotif]   = useState(null);
   const [delConf, setDelConf] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [tarifas, setTarifas] = useState({}); // { empId: { manana:{lab,finde,festivo}, mediodia:{...}, noche:{...} } }
   const [festivos, setFestivos] = useState([]);  // array de strings "YYYY-MM-DD"
 
   // ── Cargar y escuchar cambios en Firebase en tiempo real ──────────────────
@@ -357,7 +504,7 @@ export default function App() {
         setShifts(fixed);
       } else {
         // Primer acceso a este mes: inicializar todo libre en Firebase
-        const init = genShiftsLibre(EMPLOYEES_INIT, year, month);
+        const init = genShiftsLibre(emps, year, month);
         set(ref(db,`turnos/${mk}`), init);
         setShifts(init);
       }
@@ -375,18 +522,29 @@ export default function App() {
       const data=snap.val();
       setFestivos(data?Object.values(data):[]);
     });
-    return ()=>{ unsubShifts(); unsubCambios(); unsubFestivos(); };
+    // Tarifas
+    const tarifasRef = ref(db, "tarifas");
+    const unsubTarifas = onValue(tarifasRef, snap=>{
+      const data=snap.val();
+      setTarifas(data||{});
+    });
+    return ()=>{ unsubShifts(); unsubCambios(); unsubFestivos(); unsubTarifas(); };
   }, [year, month]);
 
   // ── Si es empleado → vista reducida ──────────────────────────────────────
   if (!user) return <Login onLogin={setUser}/>;
 
   if (user.rol==="empleado") {
-    function goMonthEmp(dir) {
+    if(loading) return (
+      <div style={{ minHeight:"100vh",background:"#F4F1EC",display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"'DM Sans','Segoe UI',sans-serif" }}>
+        <div style={{ textAlign:"center" }}><div style={{ fontSize:48,marginBottom:16 }}>🍽️</div><div style={{ fontWeight:700,fontSize:16,color:"#555" }}>Cargando turnos...</div></div>
+      </div>
+    );
+    const goMonthEmp = (dir) => {
       let m=month+dir, y=year;
       if(m>11){m=0;y++;} if(m<0){m=11;y--;}
       setMonth(m); setYear(y);
-    }
+    };
     return <VistaEmpleado user={user} emps={emps} shifts={shifts} month={month} year={year} onLogout={()=>setUser(null)} onMonthChange={goMonthEmp}/>;
   }
 
@@ -404,6 +562,11 @@ export default function App() {
     // Save all festivos as object in Firebase
     const obj={}; newFest.forEach((f,i)=>obj[i]=f);
     set(ref(db,"festivos"), Object.keys(obj).length>0?obj:null);
+  }
+
+  function saveTarifas(newTar){
+    setTarifas(newTar);
+    set(ref(db,"tarifas"), newTar);
   }
 
   function notify(msg,type="ok"){ setNotif({msg,type}); setTimeout(()=>setNotif(null),3000); }
@@ -473,8 +636,8 @@ export default function App() {
           const day=i+1, dow=dowIndex(year,month,day);
           const isToday=day===today.getDate()&&month===today.getMonth()&&year===today.getFullYear(), isWe=dow>=5;
           const trabajando=emps.filter(e=>!esLibre(shifts[e.id]?.[day]));
-          const medC=trabajando.filter(e=>(shifts[e.id][day]||[]).some(t=>t==="mediodia"||t==="doble")).length;
-          const nocC=trabajando.filter(e=>(shifts[e.id][day]||[]).some(t=>t==="noche"||t==="doble")).length;
+          const medC=trabajando.filter(e=>(shifts[e.id][day]||[]).some(t=>t==="mediodia")).length;
+          const nocC=trabajando.filter(e=>(shifts[e.id][day]||[]).some(t=>t==="noche")).length;
           return (
             <div key={day} style={{ background:"#fff",borderRadius:14,overflow:"hidden",boxShadow:isToday?"0 0 0 2px #E07A5F,0 4px 16px rgba(0,0,0,.1)":"0 2px 10px rgba(0,0,0,.06)",border:isToday?"2px solid #E07A5F":"2px solid transparent" }}>
               <div style={{ padding:"10px 14px",background:isToday?"#E07A5F":isWe?"#1B2432":"#2a3244",color:"#fff",display:"flex",alignItems:"center",gap:8 }}>
@@ -522,7 +685,7 @@ export default function App() {
       <div key={emp.id} style={{ background:"#fff",borderRadius:16,marginBottom:14,overflow:"hidden",boxShadow:"0 2px 12px rgba(0,0,0,.06)" }}>
         <div style={{ display:"flex",alignItems:"center",gap:12,padding:"12px 18px",borderBottom:"1px solid #f0f0f0" }}>
           <div style={{ width:36,height:36,borderRadius:"50%",background:emp.color,display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontWeight:800,fontSize:14,flexShrink:0 }}>{emp.name.charAt(0)}</div>
-          <div><div style={{ fontWeight:700,fontSize:15 }}>{emp.name}</div><div style={{ fontSize:12,color:"#aaa" }}>{diasT(emp.id)} días · {horas(emp.id)}h</div></div>
+          <div><div style={{ fontWeight:700,fontSize:15 }}>{emp.name}</div><div style={{ fontSize:12,color:"#aaa" }}>{diasT(emp.id)} días · {parseFloat(horas(emp.id).toFixed(1))}h</div></div>
           {canEdit&&<button onClick={()=>setCambioM({emp1Id:emp.id})} style={{ marginLeft:"auto",background:"#F4F1EC",border:"1px solid #ddd",borderRadius:8,padding:"6px 13px",cursor:"pointer",fontSize:12,fontWeight:600,color:"#555" }}>🔄 Cambio</button>}
         </div>
         <div style={{ display:"grid",gridTemplateColumns:"repeat(7,1fr)" }}>
@@ -546,7 +709,7 @@ export default function App() {
 
   function ViewTabla(){
     return <div>
-      <p style={{ margin:"0 0 12px",color:"#888",fontSize:13 }}>M=Mediodía · N=Noche · MAN=Mañana · D=Doble · L=Libre{canEdit?" · Clic para editar":""}</p>
+      <p style={{ margin:"0 0 12px",color:"#888",fontSize:13 }}>MAN=Mañanas · M=Mediodía · N=Noche · L=Libre{canEdit?" · Clic para editar":""}</p>
       <div style={{ overflowX:"auto" }}>
         <table style={{ borderCollapse:"collapse",background:"#fff",borderRadius:16,overflow:"hidden",boxShadow:"0 2px 14px rgba(0,0,0,.06)",fontSize:11,minWidth:700 }}>
           <thead>
@@ -569,7 +732,7 @@ export default function App() {
                     <span style={{ background:info.bg,color:info.color,borderRadius:5,padding:"3px 2px",fontWeight:800,fontSize:10,display:"block" }}>{info.abr}</span>
                   </td>; })}
                 <td style={{ textAlign:"center",fontWeight:700,color:"#3D405B",padding:"0 8px" }}>{diasT(emp.id)}</td>
-                <td style={{ textAlign:"center",fontWeight:700,color:"#E07A5F",padding:"0 8px" }}>{horas(emp.id)}h</td>
+                <td style={{ textAlign:"center",fontWeight:700,color:"#E07A5F",padding:"0 8px" }}>{parseFloat(horas(emp.id).toFixed(1))}h</td>
               </tr>
             ))}
             <tr style={{ background:"#1B2432",color:"#fff",fontWeight:700 }}>
@@ -609,7 +772,25 @@ export default function App() {
           else if(t==="noche")    { hNoc+=TURNOS.noche.horas;    dNoche++; }
         });
       }
-      return {hTot,hMan,hMed,hNoc,hExtra,dTot,dFinde,dFestivo,dLab,dManana,dMediodia,dNoche};
+      // Calcular salario estimado
+      function getTar(tipo, tipoDia){
+        // Priority: employee override > customized base > hardcoded default
+        const empTar=tarifas[empId]?.[tipo];
+        const baseTar=tarifas["base"]?.[tipo];
+        const defTar=TARIFAS_DEFAULT[tipo];
+        const t=empTar||baseTar||defTar;
+        return t?.[tipoDia]||0;
+      }
+      let salario=0;
+      for(let d=1;d<=dim;d++){
+        const arr=shifts[empId]?.[d]||["libre"];
+        if(esLibre(arr)) continue;
+        const dow=dowIndex(year,month,d);
+        const finde=dow>=5, fest=esFestivo(d);
+        const tipoDia=fest?"festivo":finde?"finde":"lab";
+        arr.filter(t=>t!=="libre"&&TURNOS[t]).forEach(t=>{ salario+=getTar(t,tipoDia); });
+      }
+      return {hTot,hMan,hMed,hNoc,hExtra,dTot,dFinde,dFestivo,dLab,dManana,dMediodia,dNoche,salario};
     }
 
     const statRow = (label,val,color,sub) => (
@@ -655,10 +836,13 @@ export default function App() {
         </div>
       )}
 
+      {/* Configuración de tarifas — solo admin */}
+      {user.rol==="admin"&&<TarifasConfig emps={emps} tarifas={tarifas} onSave={saveTarifas}/>}
+
       {/* Tarjetas por empleado */}
       <div style={{ display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(300px,1fr))",gap:14 }}>
         {emps.map(emp=>{
-          const {hTot,hMan,hMed,hNoc,hExtra,dTot,dFinde,dFestivo,dLab,dManana,dMediodia,dNoche}=statsEmp(emp.id);
+          const {hTot,hMan,hMed,hNoc,hExtra,dTot,dFinde,dFestivo,dLab,dManana,dMediodia,dNoche,salario}=statsEmp(emp.id);
           const pct=Math.min(100,Math.round((hTot/130)*100));
           return <div key={emp.id} style={{ background:"#fff",borderRadius:18,padding:20,boxShadow:"0 2px 12px rgba(0,0,0,.06)" }}>
             {/* Cabecera */}
@@ -669,7 +853,7 @@ export default function App() {
 
             {/* Totales grandes */}
             <div style={{ display:"flex",gap:8,marginBottom:14 }}>
-              <div style={{ flex:1,background:"#F4F1EC",borderRadius:12,padding:"10px 8px",textAlign:"center" }}><div style={{ fontSize:26,fontWeight:900,color:"#E07A5F" }}>{hTot}</div><div style={{ fontSize:10,color:"#aaa",fontWeight:700 }}>HORAS TOT.</div></div>
+              <div style={{ flex:1,background:"#F4F1EC",borderRadius:12,padding:"10px 8px",textAlign:"center" }}><div style={{ fontSize:26,fontWeight:900,color:"#E07A5F" }}>{parseFloat(hTot.toFixed(1))}</div><div style={{ fontSize:10,color:"#aaa",fontWeight:700 }}>HORAS TOT.</div></div>
               <div style={{ flex:1,background:"#F4F1EC",borderRadius:12,padding:"10px 8px",textAlign:"center" }}><div style={{ fontSize:26,fontWeight:900,color:"#1B2432" }}>{dTot}</div><div style={{ fontSize:10,color:"#aaa",fontWeight:700 }}>DÍAS TOT.</div></div>
             </div>
 
@@ -677,6 +861,12 @@ export default function App() {
             <div style={{ marginBottom:14 }}>
               <div style={{ display:"flex",justifyContent:"space-between",marginBottom:4,fontSize:11 }}><span style={{ color:"#aaa" }}>Ref. 130h/mes</span><span style={{ fontWeight:700 }}>{pct}%</span></div>
               <div style={{ background:"#eee",borderRadius:6,height:8,overflow:"hidden" }}><div style={{ width:`${pct}%`,height:"100%",background:emp.color,borderRadius:6,transition:"width .5s" }}/></div>
+            </div>
+
+            {/* Salario estimado */}
+            <div style={{ background:"#1B2432",borderRadius:12,padding:"12px 16px",marginBottom:12,display:"flex",justifyContent:"space-between",alignItems:"center" }}>
+              <span style={{ fontSize:13,color:"#aaa",fontWeight:600 }}>💰 Salario estimado</span>
+              <span style={{ fontSize:22,fontWeight:900,color:"#81B29A" }}>{salario.toFixed(2)}€</span>
             </div>
 
             {/* Desglose por tipo de turno */}
@@ -737,7 +927,7 @@ export default function App() {
         {emps.map(emp=>(
           <div key={emp.id} style={{ background:"#fff",borderRadius:14,padding:18,boxShadow:"0 2px 8px rgba(0,0,0,.05)",display:"flex",alignItems:"center",gap:14 }}>
             <div style={{ width:48,height:48,borderRadius:"50%",background:emp.color,display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontWeight:900,fontSize:20,flexShrink:0 }}>{emp.name.charAt(0)}</div>
-            <div style={{ flex:1 }}><div style={{ fontWeight:700,fontSize:15 }}>{emp.name}</div><div style={{ fontSize:12,color:"#aaa" }}>{diasT(emp.id)} días · {horas(emp.id)}h</div></div>
+            <div style={{ flex:1 }}><div style={{ fontWeight:700,fontSize:15 }}>{emp.name}</div><div style={{ fontSize:12,color:"#aaa" }}>{diasT(emp.id)} días · {parseFloat(horas(emp.id).toFixed(1))}h</div></div>
             {user.rol==="admin"&&<button onClick={()=>setDelConf(emp.id)} style={{ background:"#FFF0F0",border:"none",color:"#C62828",borderRadius:8,padding:"6px 10px",cursor:"pointer",fontSize:16 }}>🗑️</button>}
           </div>
         ))}
