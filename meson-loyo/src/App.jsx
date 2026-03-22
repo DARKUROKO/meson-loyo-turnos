@@ -80,7 +80,7 @@ function Login({ onLogin }) {
   const [u,setU]=useState(""); const [p,setP]=useState(""); const [err,setErr]=useState(""); const [show,setShow]=useState(false);
   function go() {
     const user=USUARIOS.find(x=>x.usuario===u.trim().toLowerCase()&&x.password===p);
-    if(user) onLogin(user);
+    if(user){ localStorage.setItem("loyo_user", JSON.stringify(user)); onLogin(user); }
     else { setErr("Usuario o contraseña incorrectos"); setTimeout(()=>setErr(""),2500); }
   }
   const inp={ width:"100%",border:"1.5px solid #e0e0e0",borderRadius:10,padding:"11px 14px",fontSize:14,outline:"none",boxSizing:"border-box",fontFamily:"inherit" };
@@ -468,7 +468,7 @@ function TarifasConfig({ emps, tarifas, onSave }) {
    APP PRINCIPAL
 ═══════════════════════════════════════════════════════════════════════════ */
 export default function App() {
-  const [user,    setUser]    = useState(null);
+  const [user, setUser] = useState(()=>{ try{ const s=localStorage.getItem("loyo_user"); return s?JSON.parse(s):null; }catch{ return null; } });
   const [view,    setView]    = useState("dia");
   const [month,   setMonth]   = useState(today.getMonth());
   const [year,    setYear]    = useState(today.getFullYear());
@@ -545,7 +545,7 @@ export default function App() {
       if(m>11){m=0;y++;} if(m<0){m=11;y--;}
       setMonth(m); setYear(y);
     };
-    return <VistaEmpleado user={user} emps={emps} shifts={shifts} month={month} year={year} onLogout={()=>setUser(null)} onMonthChange={goMonthEmp}/>;
+    return <VistaEmpleado user={user} emps={emps} shifts={shifts} month={month} year={year} onLogout={()=>{ localStorage.removeItem("loyo_user"); setUser(null); }} onMonthChange={goMonthEmp}/>;
   }
 
   // ── Admin / Visor ─────────────────────────────────────────────────────────
@@ -1091,7 +1091,7 @@ export default function App() {
               <div style={{ fontSize:13,fontWeight:700 }}>{user.nombre}</div>
               <div style={{ fontSize:11,color:"#aaa" }}>{user.rol==="admin"?"👑 Admin":user.rol==="visor"?"👁️ Solo lectura":"✏️ Editor"}</div>
             </div>
-            <button onClick={()=>setUser(null)} style={{ background:"#2a3244",color:"#ccc",border:"none",borderRadius:8,padding:"6px 12px",cursor:"pointer",fontSize:12,fontWeight:600 }}>Salir</button>
+            <button onClick={()=>{ localStorage.removeItem("loyo_user"); setUser(null); }} style={{ background:"#2a3244",color:"#ccc",border:"none",borderRadius:8,padding:"6px 12px",cursor:"pointer",fontSize:12,fontWeight:600 }}>Salir</button>
           </div>
         </div>
         <div style={{ background:"#141c28",borderTop:"1px solid #2a3244" }}>
