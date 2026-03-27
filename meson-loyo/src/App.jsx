@@ -107,7 +107,7 @@ function Login({ onLogin }) {
 }
 
 /* ─── VISTA EMPLEADO ─────────────────────────────────────────────────────── */
-function VistaEmpleado({ user, emps, shifts, month, year, onLogout, onMonthChange }) {
+function VistaEmpleado({ user, emps, shifts, month, year, disponibilidad, onSaveDisp, onLogout, onMonthChange }) {
   const emp = emps.find(e=>e.id===user.empId);
   const [tab, setTab] = useState("mis");
   if (!emp) return <div style={{ padding:40,textAlign:"center",color:"#aaa" }}>Empleado no encontrado</div>;
@@ -159,6 +159,7 @@ function VistaEmpleado({ user, emps, shifts, month, year, onLogout, onMonthChang
         <div style={{ display:"flex",gap:4,background:"#fff",borderRadius:12,padding:4,marginBottom:18,boxShadow:"0 2px 8px rgba(0,0,0,.05)" }}>
           {tabBtn("mis","📅 Mis turnos")}
           {tabBtn("completo","👥 Calendario completo")}
+          {tabBtn("disp","🗓️ Disponibilidad")}
         </div>
         {tab==="mis" && (
           <div>
@@ -198,6 +199,65 @@ function VistaEmpleado({ user, emps, shifts, month, year, onLogout, onMonthChang
             </div>
           </div>
         )}
+        {tab==="disp" && (()=>{
+          const mk=mesKey(year,month);
+          const dispEmp=disponibilidad?.[emp.id]?.[mk]||{};
+          function toggleDisp(day){
+            const cur=dispEmp[day];
+            const newVal=cur===true?false:cur===false?undefined:true;
+            const newDispEmp={...dispEmp};
+            if(newVal===undefined) delete newDispEmp[day];
+            else newDispEmp[day]=newVal;
+            const newDisp={...disponibilidad,[emp.id]:{...(disponibilidad?.[emp.id]||{}),[mk]:newDispEmp}};
+            onSaveDisp(newDisp);
+          }
+          const totalSi=Object.values(dispEmp).filter(v=>v===true).length;
+          const totalNo=Object.values(dispEmp).filter(v=>v===false).length;
+          return (
+            <div>
+              <div style={{ background:"#fff",borderRadius:14,padding:"14px 18px",marginBottom:16,boxShadow:"0 2px 8px rgba(0,0,0,.05)" }}>
+                <div style={{ fontWeight:700,fontSize:15,marginBottom:4 }}>Marca tus días disponibles</div>
+                <div style={{ fontSize:13,color:"#888",marginBottom:12 }}>Pulsa cada día para indicar si puedes o no trabajar. Esto ayuda a Javier a organizar el calendario.</div>
+                <div style={{ display:"flex",gap:16,fontSize:13 }}>
+                  <span>✅ Disponible: <b style={{ color:"#2D6A4F" }}>{totalSi}</b></span>
+                  <span>❌ No disponible: <b style={{ color:"#C62828" }}>{totalNo}</b></span>
+                </div>
+              </div>
+              <div style={{ background:"#fff",borderRadius:16,overflow:"hidden",boxShadow:"0 2px 12px rgba(0,0,0,.06)" }}>
+                <div style={{ display:"grid",gridTemplateColumns:"repeat(7,1fr)",borderBottom:"1px solid #f0f0f0" }}>
+                  {DIAS.map(d=><div key={d} style={{ textAlign:"center",fontSize:11,fontWeight:700,color:"#ccc",padding:"9px 0 5px" }}>{d}</div>)}
+                </div>
+                <div style={{ display:"grid",gridTemplateColumns:"repeat(7,1fr)" }}>
+                  {Array.from({length:fd}).map((_,i)=><div key={`e${i}`} style={{ borderBottom:"1px solid #f5f5f5",minHeight:60 }}/>)}
+                  {Array.from({length:dim}).map((_,i)=>{
+                    const day=i+1, dow=dowIndex(year,month,day);
+                    const isWe=dow>=5;
+                    const disp=dispEmp[day];
+                    const isToday=day===today.getDate()&&month===today.getMonth()&&year===today.getFullYear();
+                    const bg=disp===true?"#D1FAE5":disp===false?"#FEE2E2":isToday?"#FFF8E1":isWe?"#fafafa":"#fff";
+                    return (
+                      <div key={day} onClick={()=>toggleDisp(day)}
+                        style={{ padding:"6px 3px",textAlign:"center",cursor:"pointer",borderBottom:"1px solid #f5f5f5",borderRight:"1px solid #f5f5f5",background:bg,minHeight:60,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:3,transition:"background .15s" }}
+                        onMouseEnter={x=>x.currentTarget.style.opacity=".8"}
+                        onMouseLeave={x=>x.currentTarget.style.opacity="1"}>
+                        <div style={{ fontSize:12,color:isToday?"#E07A5F":isWe?"#bbb":"#ccc",fontWeight:isToday?800:400 }}>{day}</div>
+                        <div style={{ fontSize:20,lineHeight:1 }}>
+                          {disp===true?"✅":disp===false?"❌":"⬜"}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+              <div style={{ display:"flex",gap:10,marginTop:14,fontSize:12,color:"#aaa",justifyContent:"center" }}>
+                <span>⬜ Sin indicar</span>
+                <span>✅ Disponible</span>
+                <span>❌ No disponible</span>
+              </div>
+            </div>
+          );
+        })()}
+
         {tab==="completo" && (
           <div style={{ display:"flex",flexDirection:"column",gap:10 }}>
             {Array.from({length:dim},(_,i)=>{
@@ -481,7 +541,8 @@ export default function App() {
   const [notif,   setNotif]   = useState(null);
   const [delConf, setDelConf] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [tarifas, setTarifas] = useState({}); // { empId: { manana:{lab,finde,festivo}, mediodia:{...}, noche:{...} } }
+  const [tarifas, setTarifas] = useState({});
+  const [disponibilidad, setDisponibilidad] = useState({}); // { empId: { "YYYY_MM": { day: true/false } } } // { empId: { manana:{lab,finde,festivo}, mediodia:{...}, noche:{...} } }
   const [festivos, setFestivos] = useState([]);  // array de strings "YYYY-MM-DD"
 
   // ── Cargar y escuchar cambios en Firebase en tiempo real ──────────────────
@@ -522,13 +583,17 @@ export default function App() {
       const data=snap.val();
       setFestivos(data?Object.values(data):[]);
     });
+    // Disponibilidad
+    const dispRef = ref(db, "disponibilidad");
+    const unsubDisp = onValue(dispRef, snap=>{ setDisponibilidad(snap.val()||{}); });
+
     // Tarifas
     const tarifasRef = ref(db, "tarifas");
     const unsubTarifas = onValue(tarifasRef, snap=>{
       const data=snap.val();
       setTarifas(data||{});
     });
-    return ()=>{ unsubShifts(); unsubCambios(); unsubFestivos(); unsubTarifas(); };
+    return ()=>{ unsubShifts(); unsubCambios(); unsubFestivos(); unsubTarifas(); unsubDisp(); };
   }, [year, month]);
 
   // ── Si es empleado → vista reducida ──────────────────────────────────────
@@ -545,7 +610,7 @@ export default function App() {
       if(m>11){m=0;y++;} if(m<0){m=11;y--;}
       setMonth(m); setYear(y);
     };
-    return <VistaEmpleado user={user} emps={emps} shifts={shifts} month={month} year={year} onLogout={()=>{ localStorage.removeItem("loyo_user"); setUser(null); }} onMonthChange={goMonthEmp}/>;
+    return <VistaEmpleado user={user} emps={emps} shifts={shifts} month={month} year={year} disponibilidad={disponibilidad} onSaveDisp={saveDisponibilidad} onLogout={()=>{ localStorage.removeItem("loyo_user"); setUser(null); }} onMonthChange={goMonthEmp}/>;
   }
 
   // ── Admin / Visor ─────────────────────────────────────────────────────────
@@ -568,6 +633,10 @@ export default function App() {
     setTarifas(newTar);
     set(ref(db,"tarifas"), newTar);
   }
+  function saveDisponibilidad(newDisp){
+    setDisponibilidad(newDisp);
+    set(ref(db,"disponibilidad"), newDisp);
+  }
 
   function notify(msg,type="ok"){ setNotif({msg,type}); setTimeout(()=>setNotif(null),3000); }
 
@@ -580,7 +649,17 @@ export default function App() {
   // Guardar turno en Firebase
   function saveShift(empId,day,arr){
     const mk=mesKey(year,month);
+    const anterior=shifts[empId]?.[day]||["libre"];
     set(ref(db,`turnos/${mk}/${empId}/${day}`), arr);
+    // Registrar cambio automático si el turno realmente cambió Y el mes está completo
+    const antLabel=anterior.filter(t=>t!=="libre").map(t=>TURNOS[t]?.label).join("+")||"Libre";
+    const newLabel=arr.filter(t=>t!=="libre").map(t=>TURNOS[t]?.label).join("+")||"Libre";
+    const mesCompleto=(()=>{ for(let d=1;d<=dim;d++){ if(emps.every(e=>esLibre(shifts[e.id]?.[d]))) return false; } return true; })();
+    if(antLabel!==newLabel && mesCompleto){
+      const emp=emps.find(e=>e.id===empId);
+      const id=Date.now();
+      set(ref(db,`cambios/${id}`),{id,tipo:"auto",fecha:`${day}/${month+1}/${year}`,emp:emp?.name,de:antLabel,a:newLabel,por:user.nombre});
+    }
     setModal(null); notify("✅ Turno guardado");
   }
 
@@ -625,6 +704,7 @@ export default function App() {
     {id:"tabla",label:"📊 Tabla"},
     ...(canSeeHoras?[{id:"horas",label:"⏱️ Horas"}]:[]),
     {id:"cambios",label:"🔄 Cambios"},
+    {id:"disponibilidad",label:"🗓️ Disponibilidad"},
     {id:"empleados",label:"👥 Empleados"},
   ];
 
@@ -1009,24 +1089,103 @@ export default function App() {
     </div>;
   }
 
-  function ViewCambios(){
-    return <div>
-      <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:18 }}>
-        <h3 style={{ margin:0,fontWeight:800,fontSize:19 }}>🔄 Registro de Cambios</h3>
-        {canEdit&&<button onClick={()=>setCambioM({emp1Id:null})} style={{ background:"#E07A5F",color:"#fff",border:"none",borderRadius:10,padding:"10px 20px",fontWeight:700,cursor:"pointer",fontSize:14 }}>+ Nuevo cambio</button>}
-      </div>
-      {cambios.length===0?<div style={{ background:"#fff",borderRadius:18,padding:52,textAlign:"center" }}><div style={{ fontSize:52,marginBottom:10 }}>🔄</div><div style={{ fontSize:16,fontWeight:700,color:"#aaa" }}>Sin cambios registrados</div></div>
-      :<div style={{ display:"flex",flexDirection:"column",gap:10 }}>{[...cambios].reverse().map(c=>(
-        <div key={c.id} style={{ background:"#fff",borderRadius:14,padding:"16px 20px",boxShadow:"0 2px 8px rgba(0,0,0,.05)",display:"flex",alignItems:"center",gap:14,flexWrap:"wrap" }}>
-          <div style={{ background:"#FFF8E1",color:"#E65100",borderRadius:10,padding:"8px 14px",fontSize:13,fontWeight:700,whiteSpace:"nowrap" }}>📅 {c.fecha}</div>
-          <div style={{ flex:1,minWidth:200 }}>
-            <div style={{ fontWeight:700,fontSize:14 }}>{c.emp1} <span style={{ color:"#E07A5F" }}>↔</span> {c.emp2}</div>
-            <div style={{ fontSize:12,color:"#888",marginTop:2 }}>{c.emp1}: {c.t1} ↔ {c.emp2}: {c.t2}</div>
-            {c.motivo&&<div style={{ fontSize:11,color:"#bbb",marginTop:2 }}>💬 {c.motivo}</div>}
-          </div>
-          <div style={{ fontSize:11,color:"#ccc" }}>por {c.por}</div>
+
+  function ViewDisponibilidad({ disponibilidad }){
+    const mk = mesKey(year, month);
+    return (
+      <div>
+        <div style={{ marginBottom:20 }}>
+          <h3 style={{ margin:"0 0 4px",fontWeight:800,fontSize:19 }}>🗓️ Disponibilidad de {MESES[month]}</h3>
+          <p style={{ margin:0,color:"#aaa",fontSize:13 }}>Días que cada camarero ha indicado que puede trabajar. Verde = disponible, gris = no indicado.</p>
         </div>
-      ))}</div>}
+        {emps.map(emp=>{
+          const dispEmp = disponibilidad?.[emp.id]?.[mk] || {};
+          const totalDisp = Object.values(dispEmp).filter(Boolean).length;
+          return (
+            <div key={emp.id} style={{ background:"#fff",borderRadius:16,marginBottom:14,overflow:"hidden",boxShadow:"0 2px 12px rgba(0,0,0,.06)" }}>
+              <div style={{ display:"flex",alignItems:"center",gap:12,padding:"12px 18px",borderBottom:"1px solid #f0f0f0" }}>
+                <div style={{ width:36,height:36,borderRadius:"50%",background:emp.color,display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontWeight:800,fontSize:14,flexShrink:0 }}>{emp.name.charAt(0)}</div>
+                <div>
+                  <div style={{ fontWeight:700,fontSize:15 }}>{emp.name}</div>
+                  <div style={{ fontSize:12,color:"#aaa" }}>{totalDisp} días disponibles indicados</div>
+                </div>
+                {totalDisp===0&&<span style={{ marginLeft:"auto",fontSize:12,color:"#ccc",fontStyle:"italic" }}>Sin rellenar</span>}
+              </div>
+              <div style={{ display:"grid",gridTemplateColumns:"repeat(7,1fr)" }}>
+                {DIAS.map(d=><div key={d} style={{ textAlign:"center",fontSize:10,fontWeight:700,color:"#ccc",padding:"6px 0 3px",borderBottom:"1px solid #f5f5f5" }}>{d}</div>)}
+                {Array.from({length:fd}).map((_,i)=><div key={`e${i}`} style={{ borderBottom:"1px solid #f5f5f5" }}/>)}
+                {Array.from({length:dim}).map((_,i)=>{
+                  const day=i+1, dow=dowIndex(year,month,day);
+                  const isWe=dow>=5;
+                  const disp=dispEmp[day];
+                  const isToday=day===today.getDate()&&month===today.getMonth()&&year===today.getFullYear();
+                  return (
+                    <div key={day} style={{ padding:"5px 3px",textAlign:"center",borderBottom:"1px solid #f5f5f5",borderRight:"1px solid #f5f5f5",background:isToday?"#FFF8E1":isWe?"#fafafa":"transparent",minHeight:52,display:"flex",flexDirection:"column",alignItems:"center",gap:3 }}>
+                      <div style={{ fontSize:10,color:isToday?"#E07A5F":isWe?"#bbb":"#ccc",fontWeight:isToday?800:400 }}>{day}</div>
+                      <div style={{ width:28,height:28,borderRadius:"50%",background:disp?"#2D6A4F":disp===false?"#FFEBEE":"#f0f0f0",display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,transition:"background .2s" }}>
+                        {disp?"✓":disp===false?"✗":""}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    );
+  }
+
+  function ViewCambios(){
+    const autoLogs=[...cambios].filter(c=>c.tipo==="auto").reverse();
+    const manuales=[...cambios].filter(c=>c.tipo!=="auto").reverse();
+    return <div>
+      <div style={{ marginBottom:24 }}>
+        <h3 style={{ margin:"0 0 4px",fontWeight:800,fontSize:19 }}>🕓 Historial de ediciones</h3>
+        <p style={{ margin:0,color:"#aaa",fontSize:13 }}>Cada vez que se modifica un turno queda registrado automáticamente.</p>
+      </div>
+      {autoLogs.length===0?(
+        <div style={{ background:"#fff",borderRadius:18,padding:48,textAlign:"center" }}>
+          <div style={{ fontSize:48,marginBottom:10 }}>📋</div>
+          <div style={{ fontSize:16,fontWeight:700,color:"#aaa" }}>Sin ediciones registradas</div>
+          <div style={{ fontSize:13,color:"#ccc",marginTop:6,maxWidth:300,margin:"8px auto 0" }}>En cuanto edites el turno de algún camarero aparecerá aquí</div>
+        </div>
+      ):(
+        <div style={{ display:"flex",flexDirection:"column",gap:8 }}>
+          {autoLogs.map(c=>(
+            <div key={c.id} style={{ background:"#fff",borderRadius:12,padding:"12px 18px",boxShadow:"0 2px 8px rgba(0,0,0,.05)",display:"flex",alignItems:"center",gap:12,flexWrap:"wrap" }}>
+              <div style={{ background:"#F4F1EC",borderRadius:8,padding:"6px 12px",fontSize:12,fontWeight:700,color:"#888",whiteSpace:"nowrap" }}>📅 {c.fecha}</div>
+              <div style={{ width:32,height:32,borderRadius:"50%",background:emps.find(e=>e.name===c.emp)?.color||"#ccc",display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontWeight:800,fontSize:13,flexShrink:0 }}>{c.emp?.charAt(0)}</div>
+              <div style={{ flex:1,minWidth:160 }}>
+                <span style={{ fontWeight:700,fontSize:14 }}>{c.emp}</span>
+                <div style={{ fontSize:12,color:"#888",marginTop:2,display:"flex",alignItems:"center",gap:6 }}>
+                  <span style={{ background:"#f5f5f5",borderRadius:5,padding:"1px 7px",color:"#999" }}>{c.de}</span>
+                  <span style={{ color:"#bbb" }}>→</span>
+                  <span style={{ background:"#E07A5F22",borderRadius:5,padding:"1px 7px",color:"#E07A5F",fontWeight:700 }}>{c.a}</span>
+                </div>
+              </div>
+              <div style={{ fontSize:11,color:"#ccc",whiteSpace:"nowrap" }}>por {c.por}</div>
+            </div>
+          ))}
+        </div>
+      )}
+      {manuales.length>0&&(
+        <div style={{ marginTop:28 }}>
+          <div style={{ fontWeight:700,fontSize:15,marginBottom:12,color:"#888" }}>Intercambios manuales anteriores</div>
+          <div style={{ display:"flex",flexDirection:"column",gap:8 }}>
+            {manuales.map(c=>(
+              <div key={c.id} style={{ background:"#fff",borderRadius:12,padding:"12px 18px",boxShadow:"0 2px 8px rgba(0,0,0,.05)",display:"flex",alignItems:"center",gap:12,flexWrap:"wrap",opacity:.7 }}>
+                <div style={{ background:"#FFF8E1",color:"#E65100",borderRadius:8,padding:"6px 12px",fontSize:12,fontWeight:700,whiteSpace:"nowrap" }}>📅 {c.fecha}</div>
+                <div style={{ flex:1 }}>
+                  <div style={{ fontWeight:700,fontSize:13 }}>{c.emp1} <span style={{ color:"#E07A5F" }}>↔</span> {c.emp2}</div>
+                  <div style={{ fontSize:12,color:"#aaa" }}>{c.t1} ↔ {c.t2}</div>
+                </div>
+                <div style={{ fontSize:11,color:"#ccc" }}>por {c.por}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>;
   }
 
@@ -1116,6 +1275,7 @@ export default function App() {
         {view==="tabla"      && <ViewTabla/>}
         {view==="horas"      && canSeeHoras && <ViewHoras/>}
         {view==="cambios"    && <ViewCambios/>}
+        {view==="disponibilidad" && <ViewDisponibilidad disponibilidad={disponibilidad}/>}
         {view==="empleados"  && <ViewEmpleados/>}
       </div>
       {modal&&(()=>{ const emp=emps.find(e=>e.id===modal.empId); return <ModalTurno emp={emp} day={modal.day} month={month} currentArr={shifts[modal.empId]?.[modal.day]||["libre"]} onSave={arr=>saveShift(modal.empId,modal.day,arr)} onClose={()=>setModal(null)}/>; })()}
