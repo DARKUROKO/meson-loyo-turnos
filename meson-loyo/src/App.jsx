@@ -1114,12 +1114,224 @@ export default function App() {
 
   function ViewDisponibilidad({ disponibilidad }){
     const mk = mesKey(year, month);
+    const [sugerencia, setSugerencia] = useState(null); // { day: { med:[empNames], noc:[empNames] } }
+
+    function generarSugerencia(){
+      // Algoritmo de reparto equitativo
+      // 1. Recopilar disponibilidad de cada empleado por día y turno
+      // 2. Repartir intentando igualar días totales y evitar 4+ días seguidos
+
+      const diasEmp = {}; // cuántos días lleva asignado cada emp
+      const ultimos = {}; // últimos días asignados para detectar rachas
+      emps.forEach(e=>{ diasEmp[e.id]=0; ultimos[e.id]=[]; });
+
+      const result = {};
+
+      for(let d=1;d<=dim;d++){
+        result[d] = { med:[], noc:[] };
+        const dispDia = disponibilidad ? Object.fromEntries(
+          emps.map(e=>[ e.id, disponibilidad?.[e.id]?.[mk]?.[d]||{} ])
+        ) : {};
+
+        // Para cada turno (med, noc) elegir candidatos disponibles
+        for(const turno of ["med","noc"]){
+          // Candidatos: disponibles para este turno (o sin indicar = comodín)
+          const candidatos = emps.filter(e=>{
+            const d2=dispDia[e.id];
+            return d2?.[turno]===true || d2?.[turno]===undefined; // disponible o sin indicar
+          }).filter(e=>{
+            // Evitar más de 3 días seguidos
+            const ult=ultimos[e.id];
+            if(ult.length<3) return true;
+            const last3=ult.slice(-3);
+            return !(last3[0]===d-3&&last3[1]===d-2&&last3[2]===d-1);
+          });
+
+          if(candidatos.length===0) continue;
+
+          // Ordenar por menos días asignados para equilibrar
+          candidatos.sort((a,b)=>diasEmp[a.id]-diasEmp[b.id]);
+
+          // Asignar el que menos días lleva y esté disponible
+          // Para mediodía típicamente se necesitan 2-3, para noche 2-3
+          const porAsignar = Math.min(3, Math.max(2, Math.floor(candidatos.length/2)));
+          const elegidos = candidatos.slice(0, porAsignar);
+
+          elegidos.forEach(e=>{
+            result[d][turno].push(e.name);
+            diasEmp[e.id]++;
+            ultimos[e.id].push(d);
+          });
+        }
+      }
+
+      setSugerencia(result);
+    }
+
     return (
       <div>
-        <div style={{ marginBottom:20 }}>
-          <h3 style={{ margin:"0 0 4px",fontWeight:800,fontSize:19 }}>🗓️ Disponibilidad de {MESES[month]}</h3>
-          <p style={{ margin:0,color:"#aaa",fontSize:13 }}>Días que cada camarero ha indicado que puede trabajar. Verde = disponible, gris = no indicado.</p>
+        <div style={{ display:"flex",alignItems:"flex-start",justifyContent:"space-between",marginBottom:20,flexWrap:"wrap",gap:12 }}>
+          <div>
+            <h3 style={{ margin:"0 0 4px",fontWeight:800,fontSize:19 }}>🗓️ Disponibilidad de {MESES[month]}</h3>
+            <p style={{ margin:0,color:"#aaa",fontSize:13 }}>Días que cada camarero ha indicado que puede trabajar.</p>
+          </div>
+          <button onClick={generarSugerencia} style={{ background:"#9B5DE5",color:"#fff",border:"none",borderRadius:11,padding:"10px 20px",fontWeight:700,cursor:"pointer",fontSize:14,display:"flex",alignItems:"center",gap:8,whiteSpace:"nowrap" }}>
+            ✨ Generar sugerencia de reparto
+          </button>
         </div>
+
+        {/* Sugerencia generada */}
+        {sugerencia&&(
+          <div style={{ background:"#fff",borderRadius:16,padding:20,marginBottom:24,boxShadow:"0 2px 14px rgba(0,0,0,.08)",border:"2px solid #9B5DE544" }}>
+            <div style={{ display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:16,flexWrap:"wrap",gap:8 }}>
+              <div>
+                <div style={{ fontWeight:800,fontSize:16,color:"#1B2432" }}>✨ Sugerencia de reparto — {MESES[month]} {year}</div>
+                <div style={{ fontSize:13,color:"#aaa",marginTop:3 }}>Solo es una propuesta. Rellena el calendario tú mismo con los cambios que consideres.</div>
+              </div>
+              <button onClick={()=>setSugerencia(null)} style={{ background:"#f0f0f0",border:"none",borderRadius:8,padding:"6px 12px",cursor:"pointer",fontWeight:600,color:"#666",fontSize:13 }}>✕ Cerrar</button>
+            </div>
+
+            {/* Resumen de días por empleado */}
+            <div style={{ display:"flex",gap:8,flexWrap:"wrap",marginBottom:16 }}>
+              {emps.map(e=>{
+                const total=Object.values(sugerencia).reduce((s,d)=>{
+                  const enMed=d.med.includes(e.name)?1:0;
+                  const enNoc=d.noc.includes(e.name)?1:0;
+                  return s+(enMed||enNoc?1:0);
+                },0);
+                const meds=Object.values(sugerencia).filter(d=>d.med.includes(e.name)).length;
+                const nocs=Object.values(sugerencia).filter(d=>d.noc.includes(e.name)).length;
+                return (
+                  <div key={e.id} style={{ background:"#F4F1EC",borderRadius:10,padding:"8px 14px",display:"flex",alignItems:"center",gap:8 }}>
+                    <div style={{ width:28,height:28,borderRadius:"50%",background:e.color,display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontWeight:800,fontSize:12 }}>{e.name.charAt(0)}</div>
+                    <div>
+                      <div style={{ fontWeight:700,fontSize:13 }}>{e.name}</div>
+                      <div style={{ fontSize:11,color:"#888" }}>{total} días · ☀️{meds} 🌙{nocs}</div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Tabla día a día */}
+            <div style={{ overflowX:"auto" }}>
+              <table style={{ borderCollapse:"collapse",width:"100%",fontSize:12 }}>
+                <thead>
+                  <tr style={{ background:"#1B2432",color:"#fff" }}>
+                    <th style={{ padding:"8px 12px",textAlign:"left",minWidth:60 }}>Día</th>
+                    <th style={{ padding:"8px 12px",textAlign:"left" }}>☀️ Mediodía (11:30–18:00)</th>
+                    <th style={{ padding:"8px 12px",textAlign:"left" }}>🌙 Noche (18:00–24:00)</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {Array.from({length:dim},(_,i)=>{
+                    const d=i+1, dow=dowIndex(year,month,d);
+                    const isWe=dow>=5;
+                    const s=sugerencia[d]||{med:[],noc:[]};
+                    if(s.med.length===0&&s.noc.length===0) return null;
+                    return (
+                      <tr key={d} style={{ background:isWe?"#f9f9f9":"#fff",borderBottom:"1px solid #f0f0f0" }}>
+                        <td style={{ padding:"8px 12px",fontWeight:700,whiteSpace:"nowrap" }}>
+                          <span style={{ fontSize:16,fontWeight:900 }}>{d}</span>
+                          <span style={{ fontSize:11,color:"#aaa",marginLeft:5 }}>{DIAS[dow]}</span>
+                        </td>
+                        <td style={{ padding:"8px 12px" }}>
+                          {s.med.length>0
+                            ? <div style={{ display:"flex",gap:5,flexWrap:"wrap" }}>
+                                {s.med.map(n=>{
+                                  const e=emps.find(x=>x.name===n);
+                                  return <span key={n} style={{ background:e?.color+"22",color:e?.color||"#555",border:`1px solid ${e?.color||"#ccc"}44`,borderRadius:6,padding:"2px 9px",fontWeight:700,fontSize:12 }}>{n}</span>;
+                                })}
+                              </div>
+                            : <span style={{ color:"#ccc",fontSize:11 }}>—</span>
+                          }
+                        </td>
+                        <td style={{ padding:"8px 12px" }}>
+                          {s.noc.length>0
+                            ? <div style={{ display:"flex",gap:5,flexWrap:"wrap" }}>
+                                {s.noc.map(n=>{
+                                  const e=emps.find(x=>x.name===n);
+                                  return <span key={n} style={{ background:e?.color+"22",color:e?.color||"#555",border:`1px solid ${e?.color||"#ccc"}44`,borderRadius:6,padding:"2px 9px",fontWeight:700,fontSize:12 }}>{n}</span>;
+                                })}
+                              </div>
+                            : <span style={{ color:"#ccc",fontSize:11 }}>—</span>
+                          }
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        {/* Mi disponibilidad — para admins con empId */}
+        {user.empId&&(()=>{
+          const myEmp=emps.find(e=>e.id===user.empId);
+          if(!myEmp) return null;
+          const dispEmp=disponibilidad?.[myEmp.id]?.[mk]||{};
+          function toggleTurnoAdmin(day,turno){
+            const cur=(dispEmp[day]||{})[turno];
+            const newVal=cur===true?false:cur===false?undefined:true;
+            const dayObj={...dispEmp[day]};
+            if(newVal===undefined) delete dayObj[turno]; else dayObj[turno]=newVal;
+            const newDispEmp={...dispEmp,[day]:dayObj};
+            const newDisp={...disponibilidad,[myEmp.id]:{...(disponibilidad?.[myEmp.id]||{}),[mk]:newDispEmp}};
+            saveDisponibilidad(newDisp);
+          }
+          const countMed=Object.values(dispEmp).filter(v=>v?.med===true).length;
+          const countNoc=Object.values(dispEmp).filter(v=>v?.noc===true).length;
+          return (
+            <div style={{ background:"#fff",borderRadius:16,marginBottom:24,overflow:"hidden",boxShadow:"0 2px 14px rgba(0,0,0,.08)",border:"2px solid #9B5DE544" }}>
+              <div style={{ padding:"14px 18px",borderBottom:"1px solid #f0f0f0",display:"flex",alignItems:"center",gap:12 }}>
+                <div style={{ width:36,height:36,borderRadius:"50%",background:myEmp.color,display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontWeight:800,fontSize:14,flexShrink:0 }}>{myEmp.name.charAt(0)}</div>
+                <div>
+                  <div style={{ fontWeight:700,fontSize:15 }}>Mi disponibilidad — {myEmp.name}</div>
+                  <div style={{ fontSize:12,color:"#aaa" }}>☀️ {countMed} mediodías · 🌙 {countNoc} noches</div>
+                </div>
+                <span style={{ marginLeft:"auto",background:"#EDE7F6",color:"#6A1B9A",borderRadius:7,padding:"4px 10px",fontSize:12,fontWeight:700 }}>Solo tú lo ves así</span>
+              </div>
+              <div style={{ padding:"14px 18px 6px",fontSize:13,color:"#888" }}>Pulsa ☀️ o 🌙 para marcar tu disponibilidad. Se guarda automáticamente.</div>
+              <div style={{ display:"grid",gridTemplateColumns:"repeat(7,1fr)",padding:"0 8px" }}>
+                {DIAS.map(d=><div key={d} style={{ textAlign:"center",fontSize:10,fontWeight:700,color:"#ccc",padding:"6px 0 3px" }}>{d}</div>)}
+                {Array.from({length:fd}).map((_,i)=><div key={`e${i}`} style={{ minHeight:72 }}/>)}
+                {Array.from({length:dim}).map((_,i)=>{
+                  const day=i+1, dow=dowIndex(year,month,day);
+                  const isWe=dow>=5, isToday=day===today.getDate()&&month===today.getMonth()&&year===today.getFullYear();
+                  const d=dispEmp[day]||{};
+                  const bg=isToday?"#FFF8E1":isWe?"#fafafa":"#fff";
+                  return (
+                    <div key={day} style={{ padding:"4px 2px",textAlign:"center",borderBottom:"1px solid #f5f5f5",borderRight:"1px solid #f5f5f5",background:bg,minHeight:72,display:"flex",flexDirection:"column",alignItems:"center",gap:3 }}>
+                      <div style={{ fontSize:10,color:isToday?"#E07A5F":isWe?"#bbb":"#ccc",fontWeight:isToday?800:400,marginBottom:1 }}>{day}</div>
+                      <div onClick={()=>toggleTurnoAdmin(day,"med")} title="Mediodía"
+                        style={{ width:"90%",borderRadius:5,padding:"3px 0",cursor:"pointer",fontSize:12,fontWeight:700,textAlign:"center",
+                          background:d.med===true?"#FFF8E1":d.med===false?"#FEE2E2":"#f5f5f5",
+                          color:d.med===true?"#E65100":d.med===false?"#C62828":"#ccc",
+                          border:`1px solid ${d.med===true?"#E6510044":d.med===false?"#C6282844":"#e0e0e0"}` }}>
+                        {d.med===true?"☀️✓":d.med===false?"☀️✗":"☀️"}
+                      </div>
+                      <div onClick={()=>toggleTurnoAdmin(day,"noc")} title="Noche"
+                        style={{ width:"90%",borderRadius:5,padding:"3px 0",cursor:"pointer",fontSize:12,fontWeight:700,textAlign:"center",
+                          background:d.noc===true?"#E3F2FD":d.noc===false?"#FEE2E2":"#f5f5f5",
+                          color:d.noc===true?"#1565C0":d.noc===false?"#C62828":"#ccc",
+                          border:`1px solid ${d.noc===true?"#1565C044":d.noc===false?"#C6282844":"#e0e0e0"}` }}>
+                        {d.noc===true?"🌙✓":d.noc===false?"🌙✗":"🌙"}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+              <div style={{ padding:"12px 18px",display:"flex",gap:14,fontSize:12,color:"#aaa" }}>
+                <span>☀️/🌙 = sin indicar</span>
+                <span style={{ color:"#E65100" }}>✓ = disponible</span>
+                <span style={{ color:"#C62828" }}>✗ = no disponible</span>
+              </div>
+            </div>
+          );
+        })()}
+
+        {/* Calendarios de disponibilidad por empleado */}
         {emps.map(emp=>{
           const dispEmp = disponibilidad?.[emp.id]?.[mk] || {};
           const totalDisp = Object.values(dispEmp).filter(v=>v?.med===true||v?.noc===true).length;
