@@ -1129,34 +1129,41 @@ export default function App() {
 
       for(let d=1;d<=dim;d++){
         result[d] = { med:[], noc:[] };
-        const dispDia = disponibilidad ? Object.fromEntries(
-          emps.map(e=>[ e.id, disponibilidad?.[e.id]?.[mk]?.[d]||{} ])
-        ) : {};
+        const dow=dowIndex(year,month,d);
+        const esFinde=dow>=5;
+        const esFest=festivos.includes(`${year}-${String(month+1).padStart(2,"0")}-${String(d).padStart(2,"0")}`);
+        const esEspecial=esFinde||esFest;
 
-        // Para cada turno (med, noc) elegir candidatos disponibles
-        for(const turno of ["med","noc"]){
-          // Candidatos: disponibles para este turno (o sin indicar = comodín)
+        // Cuántos necesitamos por turno según el tipo de día
+        const necesitadosMed = esEspecial ? 4 : 2;  // finde/festivo: 4, semana: 2
+        const necesitadosNoc = 1;                    // siempre 1 por las noches
+
+        const dispDia = Object.fromEntries(
+          emps.map(e=>[ e.id, disponibilidad?.[e.id]?.[mk]?.[d]||{} ])
+        );
+
+        for(const [turno, cuantos] of [["med",necesitadosMed],["noc",necesitadosNoc]]){
           const candidatos = emps.filter(e=>{
-            const d2=dispDia[e.id];
-            return d2?.[turno]===true || d2?.[turno]===undefined; // disponible o sin indicar
-          }).filter(e=>{
+            const disp=dispDia[e.id];
+            if(disp?.[turno]===false) return false; // marcado como no disponible
             // Evitar más de 3 días seguidos
             const ult=ultimos[e.id];
-            if(ult.length<3) return true;
-            const last3=ult.slice(-3);
-            return !(last3[0]===d-3&&last3[1]===d-2&&last3[2]===d-1);
+            if(ult.length>=3){
+              const last3=ult.slice(-3);
+              if(last3[0]===d-3&&last3[1]===d-2&&last3[2]===d-1) return false;
+            }
+            return true;
           });
 
-          if(candidatos.length===0) continue;
+          // Ordenar: primero los que han marcado disponible explícitamente, luego por menos días asignados
+          candidatos.sort((a,b)=>{
+            const aPref=dispDia[a.id]?.[turno]===true?0:1;
+            const bPref=dispDia[b.id]?.[turno]===true?0:1;
+            if(aPref!==bPref) return aPref-bPref;
+            return diasEmp[a.id]-diasEmp[b.id];
+          });
 
-          // Ordenar por menos días asignados para equilibrar
-          candidatos.sort((a,b)=>diasEmp[a.id]-diasEmp[b.id]);
-
-          // Asignar el que menos días lleva y esté disponible
-          // Para mediodía típicamente se necesitan 2-3, para noche 2-3
-          const porAsignar = Math.min(3, Math.max(2, Math.floor(candidatos.length/2)));
-          const elegidos = candidatos.slice(0, porAsignar);
-
+          const elegidos=candidatos.slice(0,cuantos);
           elegidos.forEach(e=>{
             result[d][turno].push(e.name);
             diasEmp[e.id]++;
