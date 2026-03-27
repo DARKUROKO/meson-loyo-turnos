@@ -202,25 +202,26 @@ function VistaEmpleado({ user, emps, shifts, month, year, disponibilidad, onSave
         {tab==="disp" && (()=>{
           const mk=mesKey(year,month);
           const dispEmp=disponibilidad?.[emp.id]?.[mk]||{};
-          function toggleDisp(day){
-            const cur=dispEmp[day];
+          // dispEmp[day] = { med: true/false, noc: true/false }
+          function toggleTurno(day, turno){
+            const cur=(dispEmp[day]||{})[turno];
             const newVal=cur===true?false:cur===false?undefined:true;
-            const newDispEmp={...dispEmp};
-            if(newVal===undefined) delete newDispEmp[day];
-            else newDispEmp[day]=newVal;
+            const dayObj={...dispEmp[day]};
+            if(newVal===undefined) delete dayObj[turno]; else dayObj[turno]=newVal;
+            const newDispEmp={...dispEmp,[day]:dayObj};
             const newDisp={...disponibilidad,[emp.id]:{...(disponibilidad?.[emp.id]||{}),[mk]:newDispEmp}};
             onSaveDisp(newDisp);
           }
-          const totalSi=Object.values(dispEmp).filter(v=>v===true).length;
-          const totalNo=Object.values(dispEmp).filter(v=>v===false).length;
+          const countMed=Object.values(dispEmp).filter(v=>v?.med===true).length;
+          const countNoc=Object.values(dispEmp).filter(v=>v?.noc===true).length;
           return (
             <div>
               <div style={{ background:"#fff",borderRadius:14,padding:"14px 18px",marginBottom:16,boxShadow:"0 2px 8px rgba(0,0,0,.05)" }}>
-                <div style={{ fontWeight:700,fontSize:15,marginBottom:4 }}>Marca tus días disponibles</div>
-                <div style={{ fontSize:13,color:"#888",marginBottom:12 }}>Pulsa cada día para indicar si puedes o no trabajar. Esto ayuda a Javier a organizar el calendario.</div>
+                <div style={{ fontWeight:700,fontSize:15,marginBottom:4 }}>Marca tu disponibilidad</div>
+                <div style={{ fontSize:13,color:"#888",marginBottom:12 }}>Indica en qué turnos puedes trabajar cada día. Pulsa ☀️ para mediodía y 🌙 para noche.</div>
                 <div style={{ display:"flex",gap:16,fontSize:13 }}>
-                  <span>✅ Disponible: <b style={{ color:"#2D6A4F" }}>{totalSi}</b></span>
-                  <span>❌ No disponible: <b style={{ color:"#C62828" }}>{totalNo}</b></span>
+                  <span>☀️ Mediodías: <b style={{ color:"#E65100" }}>{countMed}</b></span>
+                  <span>🌙 Noches: <b style={{ color:"#1565C0" }}>{countNoc}</b></span>
                 </div>
               </div>
               <div style={{ background:"#fff",borderRadius:16,overflow:"hidden",boxShadow:"0 2px 12px rgba(0,0,0,.06)" }}>
@@ -228,31 +229,41 @@ function VistaEmpleado({ user, emps, shifts, month, year, disponibilidad, onSave
                   {DIAS.map(d=><div key={d} style={{ textAlign:"center",fontSize:11,fontWeight:700,color:"#ccc",padding:"9px 0 5px" }}>{d}</div>)}
                 </div>
                 <div style={{ display:"grid",gridTemplateColumns:"repeat(7,1fr)" }}>
-                  {Array.from({length:fd}).map((_,i)=><div key={`e${i}`} style={{ borderBottom:"1px solid #f5f5f5",minHeight:60 }}/>)}
+                  {Array.from({length:fd}).map((_,i)=><div key={`e${i}`} style={{ borderBottom:"1px solid #f5f5f5",minHeight:72 }}/>)}
                   {Array.from({length:dim}).map((_,i)=>{
                     const day=i+1, dow=dowIndex(year,month,day);
-                    const isWe=dow>=5;
-                    const disp=dispEmp[day];
-                    const isToday=day===today.getDate()&&month===today.getMonth()&&year===today.getFullYear();
-                    const bg=disp===true?"#D1FAE5":disp===false?"#FEE2E2":isToday?"#FFF8E1":isWe?"#fafafa":"#fff";
+                    const isWe=dow>=5, isToday=day===today.getDate()&&month===today.getMonth()&&year===today.getFullYear();
+                    const d=dispEmp[day]||{};
                     return (
-                      <div key={day} onClick={()=>toggleDisp(day)}
-                        style={{ padding:"6px 3px",textAlign:"center",cursor:"pointer",borderBottom:"1px solid #f5f5f5",borderRight:"1px solid #f5f5f5",background:bg,minHeight:60,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:3,transition:"background .15s" }}
-                        onMouseEnter={x=>x.currentTarget.style.opacity=".8"}
-                        onMouseLeave={x=>x.currentTarget.style.opacity="1"}>
-                        <div style={{ fontSize:12,color:isToday?"#E07A5F":isWe?"#bbb":"#ccc",fontWeight:isToday?800:400 }}>{day}</div>
-                        <div style={{ fontSize:20,lineHeight:1 }}>
-                          {disp===true?"✅":disp===false?"❌":"⬜"}
+                      <div key={day} style={{ padding:"4px 2px",textAlign:"center",borderBottom:"1px solid #f5f5f5",borderRight:"1px solid #f5f5f5",background:isToday?"#FFF8E1":isWe?"#fafafa":"#fff",minHeight:72,display:"flex",flexDirection:"column",alignItems:"center",gap:3 }}>
+                        <div style={{ fontSize:10,color:isToday?"#E07A5F":isWe?"#bbb":"#ccc",fontWeight:isToday?800:400,marginBottom:1 }}>{day}</div>
+                        {/* Mediodía */}
+                        <div onClick={()=>toggleTurno(day,"med")} title="Mediodía 11:30–18:00"
+                          style={{ width:"90%",borderRadius:5,padding:"2px 0",cursor:"pointer",fontSize:11,fontWeight:700,
+                            background:d.med===true?"#FFF8E1":d.med===false?"#FEE2E2":"#f5f5f5",
+                            color:d.med===true?"#E65100":d.med===false?"#C62828":"#ccc",
+                            border:`1px solid ${d.med===true?"#E6510044":d.med===false?"#C6282844":"#e0e0e0"}`,
+                            transition:"all .15s" }}>
+                          {d.med===true?"☀️✓":d.med===false?"☀️✗":"☀️"}
+                        </div>
+                        {/* Noche */}
+                        <div onClick={()=>toggleTurno(day,"noc")} title="Noche 18:00–24:00"
+                          style={{ width:"90%",borderRadius:5,padding:"2px 0",cursor:"pointer",fontSize:11,fontWeight:700,
+                            background:d.noc===true?"#E3F2FD":d.noc===false?"#FEE2E2":"#f5f5f5",
+                            color:d.noc===true?"#1565C0":d.noc===false?"#C62828":"#ccc",
+                            border:`1px solid ${d.noc===true?"#1565C044":d.noc===false?"#C6282844":"#e0e0e0"}`,
+                            transition:"all .15s" }}>
+                          {d.noc===true?"🌙✓":d.noc===false?"🌙✗":"🌙"}
                         </div>
                       </div>
                     );
                   })}
                 </div>
               </div>
-              <div style={{ display:"flex",gap:10,marginTop:14,fontSize:12,color:"#aaa",justifyContent:"center" }}>
-                <span>⬜ Sin indicar</span>
-                <span>✅ Disponible</span>
-                <span>❌ No disponible</span>
+              <div style={{ display:"flex",gap:16,marginTop:14,fontSize:12,color:"#aaa",justifyContent:"center",flexWrap:"wrap" }}>
+                <span>☀️/🌙 = sin indicar</span>
+                <span style={{ color:"#E65100" }}>✓ = disponible</span>
+                <span style={{ color:"#C62828" }}>✗ = no disponible</span>
               </div>
             </div>
           );
@@ -264,16 +275,10 @@ function VistaEmpleado({ user, emps, shifts, month, year, disponibilidad, onSave
               const day=i+1, dow=dowIndex(year,month,day);
               const isToday=day===today.getDate()&&month===today.getMonth()&&year===today.getFullYear(), isWe=dow>=5;
               const miArr=shifts[emp.id]?.[day]||["libre"], miInfo=abrDia(miArr), trabajo=!esLibre(miArr);
+              const miLabel=miArr.filter(t=>t!=="libre").map(t=>TURNOS[t]?.label).join(" + ")||"Libre";
+              // Solo mostrar días en que el camarero trabaja
+              if(!trabajo) return null;
               const compas=emps.filter(e=>e.id!==emp.id&&!esLibre(shifts[e.id]?.[day]));
-              const hayActividad=trabajo||compas.length>0;
-              const miLabel=trabajo?miArr.filter(t=>t!=="libre").map(t=>TURNOS[t]?.label).join(" + "):"Libre";
-              if(!hayActividad) return (
-                <div key={day} style={{ background:"#fff",borderRadius:12,padding:"10px 16px",display:"flex",alignItems:"center",gap:10,opacity:.45,boxShadow:"0 1px 4px rgba(0,0,0,.04)" }}>
-                  <div style={{ fontWeight:700,fontSize:14,color:"#ccc",minWidth:34 }}>{day}</div>
-                  <div style={{ fontSize:12,color:"#ccc" }}>{DIAS[dow]}</div>
-                  <div style={{ fontSize:12,color:"#ccc",marginLeft:"auto" }}>🏖️ Libre</div>
-                </div>
-              );
               return (
                 <div key={day} style={{ background:"#fff",borderRadius:14,overflow:"hidden",boxShadow:isToday?"0 0 0 2px #E07A5F,0 4px 16px rgba(0,0,0,.1)":"0 2px 10px rgba(0,0,0,.06)",border:isToday?"2px solid #E07A5F":"2px solid transparent" }}>
                   <div style={{ padding:"9px 14px",background:isToday?"#E07A5F":isWe?"#1B2432":"#2a3244",color:"#fff",display:"flex",alignItems:"center",gap:10 }}>
@@ -710,7 +715,22 @@ export default function App() {
 
   // ── VISTAS ────────────────────────────────────────────────────────────────
 
-  function imprimirDia(){
+  function getSemanas(){
+    // Devuelve array de semanas [ {num, dias:[1,2,...]} ]
+    const semanas = [];
+    let semana = [];
+    for(let d=1;d<=dim;d++){
+      semana.push(d);
+      const dow=dowIndex(year,month,d);
+      if(dow===6||d===dim){ // domingo o último día
+        semanas.push({ num:semanas.length+1, dias:[...semana] });
+        semana=[];
+      }
+    }
+    return semanas;
+  }
+
+  function imprimirSemana(dias){
     const TURNOS_PRINT = {
       manana:   { label:"Mañanas",  start:"07:00", end:"09:00", color:"#6A1B9A", bg:"#F3E5F5" },
       mediodia: { label:"Mediodía", start:"11:30", end:"18:00", color:"#E65100", bg:"#FFF8E1" },
@@ -718,43 +738,43 @@ export default function App() {
     };
     const diasSemana = ["Lun","Mar","Mié","Jue","Vie","Sáb","Dom"];
     const meses = ["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];
+    const d1=dias[0], d2=dias[dias.length-1];
 
-    // Build rows: one per day
     let rows = "";
-    for(let d=1;d<=dim;d++){
+    for(const d of dias){
       const dow=dowIndex(year,month,d);
       const isWe=dow>=5;
       const trabajando=emps.filter(e=>!esLibre(shifts[e.id]?.[d]));
-      if(trabajando.length===0) continue; // skip fully libre days
 
-      // Group by turno
       const grupos = {};
       trabajando.forEach(e=>{
-        const arr=(shifts[e.id][d]||["libre"]).filter(t=>t!=="libre");
-        arr.forEach(t=>{
+        (shifts[e.id][d]||["libre"]).filter(t=>t!=="libre").forEach(t=>{
           if(!grupos[t]) grupos[t]=[];
           grupos[t].push(e.name);
         });
       });
 
       const turnosHtml = Object.entries(grupos).map(([tipo,names])=>{
-        const t=TURNOS_PRINT[tipo];
-        if(!t) return "";
-        return `<div style="margin-bottom:4px">
-          <span style="display:inline-block;background:${t.bg};color:${t.color};padding:2px 8px;border-radius:5px;font-weight:700;font-size:11px;margin-bottom:3px">${t.label} · ${t.start}–${t.end}</span>
-          <div style="padding-left:8px;font-size:12px;color:#333">${names.join(", ")}</div>
+        const t=TURNOS_PRINT[tipo]; if(!t) return "";
+        return `<div style="margin-bottom:5px">
+          <span style="display:inline-block;background:${t.bg};color:${t.color};padding:3px 10px;border-radius:6px;font-weight:700;font-size:12px;margin-bottom:4px">${t.label} · ${t.start}–${t.end}</span>
+          <div style="padding-left:10px;font-size:13px;color:#333;font-weight:600">${names.join(", ")}</div>
         </div>`;
       }).join("");
 
       rows += `
-        <tr style="background:${isWe?"#f8f8f8":"#fff"};border-bottom:1px solid #eee">
-          <td style="padding:8px 12px;font-weight:700;color:${isWe?"#1B2432":"#333"};white-space:nowrap;vertical-align:top;width:80px">
-            <span style="font-size:18px;font-weight:900">${d}</span>
-            <span style="font-size:11px;color:#888;margin-left:4px">${diasSemana[dow]}</span>
-            ${isWe?'<div style="font-size:9px;color:#888;margin-top:2px">Fin sem.</div>':""}
+        <tr style="background:${isWe?"#f5f5f5":"#fff"};border-bottom:2px solid #eee">
+          <td style="padding:12px 16px;vertical-align:top;width:100px;border-right:2px solid #eee">
+            <div style="font-size:22px;font-weight:900;color:${isWe?"#1B2432":"#333"}">${d}</div>
+            <div style="font-size:13px;color:#888;font-weight:700">${diasSemana[dow]}</div>
+            ${isWe?'<div style="font-size:10px;color:#aaa;margin-top:2px;font-weight:600">Fin de semana</div>':""}
           </td>
-          <td style="padding:8px 12px;vertical-align:top">${turnosHtml||'<span style="color:#ccc;font-size:12px">Sin asignar</span>'}</td>
-          <td style="padding:8px 12px;text-align:center;vertical-align:top;color:#555;font-size:12px;white-space:nowrap">${trabajando.length} camarero${trabajando.length!==1?"s":""}</td>
+          <td style="padding:12px 16px;vertical-align:top">
+            ${turnosHtml||'<span style="color:#ccc;font-size:13px">Sin camareros asignados</span>'}
+          </td>
+          <td style="padding:12px 16px;text-align:center;vertical-align:top;font-weight:700;font-size:15px;color:#555;border-left:2px solid #eee;width:80px">
+            ${trabajando.length}<div style="font-size:10px;color:#aaa;font-weight:400">camarero${trabajando.length!==1?"s":""}</div>
+          </td>
         </tr>`;
     }
 
@@ -762,51 +782,43 @@ export default function App() {
 <html lang="es">
 <head>
   <meta charset="UTF-8"/>
-  <title>Turnos ${meses[month]} ${year} — Mesón do Loyo</title>
+  <title>Semana ${d1}–${d2} ${meses[month]} ${year} — Mesón do Loyo</title>
   <style>
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-    body { font-family: 'Arial', sans-serif; color: #1a1a1a; background: #fff; }
-    @media print {
-      body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-      .no-print { display: none; }
+    *{box-sizing:border-box;margin:0;padding:0}
+    body{font-family:Arial,sans-serif;color:#1a1a1a;background:#fff}
+    @media print{
+      body{-webkit-print-color-adjust:exact;print-color-adjust:exact}
+      .no-print{display:none}
     }
-    .header { background: #1B2432; color: #fff; padding: 20px 32px; display: flex; align-items: center; justify-content: space-between; }
-    .header h1 { font-size: 22px; font-weight: 800; }
-    .header p { font-size: 13px; color: #aaa; margin-top: 2px; }
-    .badge { background: #E07A5F; border-radius: 8px; padding: 6px 14px; font-size: 14px; font-weight: 700; }
-    table { width: 100%; border-collapse: collapse; margin-top: 0; }
-    thead { background: #2a3244; color: #fff; }
-    thead th { padding: 10px 12px; font-size: 12px; font-weight: 700; text-align: left; }
-    .print-btn { display: block; margin: 20px auto; padding: 12px 32px; background: #E07A5F; color: #fff; border: none; border-radius: 10px; font-size: 16px; font-weight: 700; cursor: pointer; }
-    .footer { padding: 16px 32px; font-size: 11px; color: #aaa; text-align: center; margin-top: 8px; }
+    .header{background:#1B2432;color:#fff;padding:20px 28px;display:flex;align-items:center;justify-content:space-between}
+    .header h1{font-size:20px;font-weight:800}
+    .header p{font-size:12px;color:#aaa;margin-top:3px}
+    .badge{background:#E07A5F;border-radius:8px;padding:8px 16px;font-size:14px;font-weight:800}
+    table{width:100%;border-collapse:collapse}
+    thead th{background:#2a3244;color:#fff;padding:10px 16px;font-size:12px;font-weight:700;text-align:left}
+    .footer{padding:14px;font-size:11px;color:#aaa;text-align:center}
   </style>
 </head>
 <body>
   <div class="header">
     <div>
-      <h1>🍽️ Mesón do Loyo</h1>
-      <p>Paradela, Lugo · Turnos de ${meses[month]} ${year}</p>
+      <h1>🍽️ Mesón do Loyo — Paradela, Lugo</h1>
+      <p>Turnos del ${d1} al ${d2} de ${meses[month]} ${year}</p>
     </div>
-    <div class="badge">${meses[month]} ${year}</div>
+    <div class="badge">Sem. ${d1}–${d2}</div>
   </div>
-  <div class="no-print" style="text-align:center;padding:16px">
-    <button class="print-btn" onclick="window.print()">🖨️ Imprimir / Guardar PDF</button>
+  <div class="no-print" style="text-align:center;padding:14px">
+    <button onclick="window.print()" style="background:#E07A5F;color:#fff;border:none;border-radius:10px;padding:10px 28px;font-size:15px;font-weight:700;cursor:pointer">🖨️ Imprimir / Guardar PDF</button>
   </div>
   <table>
-    <thead>
-      <tr>
-        <th style="width:90px">Día</th>
-        <th>Turnos y camareros</th>
-        <th style="width:100px;text-align:center">Total</th>
-      </tr>
-    </thead>
+    <thead><tr>
+      <th style="width:110px">Día</th>
+      <th>Turnos y camareros</th>
+      <th style="width:90px;text-align:center">Total</th>
+    </tr></thead>
     <tbody>${rows}</tbody>
   </table>
   <div class="footer">Generado desde Mesón do Loyo · Gestión de Turnos</div>
-  <script>
-    // Auto-print if ?print in URL
-    if(window.location.search.includes("print")) window.print();
-  </script>
 </body>
 </html>`;
 
@@ -815,12 +827,22 @@ export default function App() {
     win.document.close();
   }
 
+  function imprimirDia(){ imprimirSemana(Array.from({length:dim},(_,i)=>i+1)); }
+
   function ViewDia(){
     return (
       <div>
-      <div style={{ display:"flex",justifyContent:"flex-end",marginBottom:12 }}>
-        <button onClick={imprimirDia} style={{ background:"#1B2432",color:"#fff",border:"none",borderRadius:10,padding:"9px 18px",fontWeight:700,cursor:"pointer",fontSize:13,display:"flex",alignItems:"center",gap:7 }}>
-          🖨️ Imprimir / Descargar
+      <div style={{ display:"flex",alignItems:"center",gap:8,marginBottom:12,flexWrap:"wrap" }}>
+        <span style={{ fontSize:13,color:"#888",fontWeight:600 }}>🖨️ Descargar:</span>
+        {getSemanas().map(s=>(
+          <button key={s.num} onClick={()=>imprimirSemana(s.dias)}
+            style={{ background:"#1B2432",color:"#fff",border:"none",borderRadius:9,padding:"7px 14px",fontWeight:700,cursor:"pointer",fontSize:12 }}>
+            Semana {s.num} ({s.dias[0]}–{s.dias[s.dias.length-1]})
+          </button>
+        ))}
+        <button onClick={imprimirDia}
+          style={{ background:"#E07A5F",color:"#fff",border:"none",borderRadius:9,padding:"7px 14px",fontWeight:700,cursor:"pointer",fontSize:12 }}>
+          Mes completo
         </button>
       </div>
       <div style={{ display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(290px,1fr))",gap:12 }}>
@@ -1100,7 +1122,7 @@ export default function App() {
         </div>
         {emps.map(emp=>{
           const dispEmp = disponibilidad?.[emp.id]?.[mk] || {};
-          const totalDisp = Object.values(dispEmp).filter(Boolean).length;
+          const totalDisp = Object.values(dispEmp).filter(v=>v?.med===true||v?.noc===true).length;
           return (
             <div key={emp.id} style={{ background:"#fff",borderRadius:16,marginBottom:14,overflow:"hidden",boxShadow:"0 2px 12px rgba(0,0,0,.06)" }}>
               <div style={{ display:"flex",alignItems:"center",gap:12,padding:"12px 18px",borderBottom:"1px solid #f0f0f0" }}>
@@ -1122,8 +1144,17 @@ export default function App() {
                   return (
                     <div key={day} style={{ padding:"5px 3px",textAlign:"center",borderBottom:"1px solid #f5f5f5",borderRight:"1px solid #f5f5f5",background:isToday?"#FFF8E1":isWe?"#fafafa":"transparent",minHeight:52,display:"flex",flexDirection:"column",alignItems:"center",gap:3 }}>
                       <div style={{ fontSize:10,color:isToday?"#E07A5F":isWe?"#bbb":"#ccc",fontWeight:isToday?800:400 }}>{day}</div>
-                      <div style={{ width:28,height:28,borderRadius:"50%",background:disp?"#2D6A4F":disp===false?"#FFEBEE":"#f0f0f0",display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,transition:"background .2s" }}>
-                        {disp?"✓":disp===false?"✗":""}
+                      <div style={{ display:"flex",flexDirection:"column",gap:2,width:"90%" }}>
+                        <div style={{ borderRadius:4,padding:"1px 2px",fontSize:10,fontWeight:700,
+                          background:disp?.med===true?"#FFF8E1":disp?.med===false?"#FEE2E2":"#f5f5f5",
+                          color:disp?.med===true?"#E65100":disp?.med===false?"#C62828":"#ccc" }}>
+                          {disp?.med===true?"☀️✓":disp?.med===false?"☀️✗":"☀️"}
+                        </div>
+                        <div style={{ borderRadius:4,padding:"1px 2px",fontSize:10,fontWeight:700,
+                          background:disp?.noc===true?"#E3F2FD":disp?.noc===false?"#FEE2E2":"#f5f5f5",
+                          color:disp?.noc===true?"#1565C0":disp?.noc===false?"#C62828":"#ccc" }}>
+                          {disp?.noc===true?"🌙✓":disp?.noc===false?"🌙✗":"🌙"}
+                        </div>
                       </div>
                     </div>
                   );
