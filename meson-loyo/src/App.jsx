@@ -1227,7 +1227,7 @@ export default function App() {
                       {r.notas&&<div style={{ fontSize:12,color:"#aaa",marginTop:4 }}>💬 {r.notas}</div>}
                     </div>
                     {canEdit&&(
-                      <div style={{ display:"flex",gap:6" }}>
+                      <div style={{ display:"flex",gap:6 }}>
                         <button onClick={()=>setForm({...r})} style={{ background:"#F4F1EC",border:"none",borderRadius:8,padding:"6px 12px",cursor:"pointer",fontWeight:600,color:"#555",fontSize:13 }}>✏️</button>
                         <button onClick={()=>setDelConf2(r.id)} style={{ background:"#FFF0F0",border:"none",borderRadius:8,padding:"6px 10px",cursor:"pointer",color:"#C62828",fontSize:13 }}>🗑️</button>
                       </div>
