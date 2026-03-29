@@ -547,7 +547,8 @@ export default function App() {
   const [delConf, setDelConf] = useState(null);
   const [loading, setLoading] = useState(true);
   const [tarifas, setTarifas] = useState({});
-  const [disponibilidad, setDisponibilidad] = useState({}); // { empId: { "YYYY_MM": { day: true/false } } } // { empId: { manana:{lab,finde,festivo}, mediodia:{...}, noche:{...} } }
+  const [disponibilidad, setDisponibilidad] = useState({});
+  const [reservas, setReservas] = useState([]); // { empId: { "YYYY_MM": { day: true/false } } } // { empId: { manana:{lab,finde,festivo}, mediodia:{...}, noche:{...} } }
   const [festivos, setFestivos] = useState([]);  // array de strings "YYYY-MM-DD"
 
   // ── Cargar y escuchar cambios en Firebase en tiempo real ──────────────────
@@ -588,6 +589,10 @@ export default function App() {
       const data=snap.val();
       setFestivos(data?Object.values(data):[]);
     });
+    // Reservas
+    const resRef = ref(db, "reservas");
+    const unsubRes = onValue(resRef, snap=>{ const d=snap.val(); setReservas(d?Object.values(d):[]); });
+
     // Disponibilidad
     const dispRef = ref(db, "disponibilidad");
     const unsubDisp = onValue(dispRef, snap=>{ setDisponibilidad(snap.val()||{}); });
@@ -598,7 +603,7 @@ export default function App() {
       const data=snap.val();
       setTarifas(data||{});
     });
-    return ()=>{ unsubShifts(); unsubCambios(); unsubFestivos(); unsubTarifas(); unsubDisp(); };
+    return ()=>{ unsubShifts(); unsubCambios(); unsubFestivos(); unsubTarifas(); unsubDisp(); unsubRes(); };
   }, [year, month]);
 
   // ── Si es empleado → vista reducida ──────────────────────────────────────
@@ -637,6 +642,12 @@ export default function App() {
   function saveTarifas(newTar){
     setTarifas(newTar);
     set(ref(db,"tarifas"), newTar);
+  }
+  function saveReserva(r){
+    set(ref(db,`reservas/${r.id}`), r);
+  }
+  function deleteReserva(id){
+    set(ref(db,`reservas/${id}`), null);
   }
   function saveDisponibilidad(newDisp){
     setDisponibilidad(newDisp);
@@ -709,6 +720,7 @@ export default function App() {
     {id:"tabla",label:"📊 Tabla"},
     ...(canSeeHoras?[{id:"horas",label:"⏱️ Horas"}]:[]),
     {id:"cambios",label:"🔄 Cambios"},
+    {id:"reservas",label:"📞 Reservas"},
     {id:"disponibilidad",label:"🗓️ Disponibilidad"},
     {id:"empleados",label:"👥 Empleados"},
   ];
@@ -1111,6 +1123,187 @@ export default function App() {
     </div>;
   }
 
+
+
+  function ViewReservas(){
+    const [form, setForm] = useState(null); // null=cerrado, {}=nuevo, {id,...}=editar
+    const [filtroFecha, setFiltroFecha] = useState("");
+    const [delConf2, setDelConf2] = useState(null);
+
+    const hoy = `${year}-${String(month+1).padStart(2,"0")}`;
+    const HORAS = ["12:00","12:30","13:00","13:30","14:00","14:30","15:00","15:30","16:00","16:30","17:00","17:30","20:00","20:30","21:00","21:30","22:00","22:30","23:00","23:30"];
+
+    // Ordenar reservas por fecha y hora
+    const reservasOrdenadas = [...reservas].sort((a,b)=>{
+      if(a.fecha!==b.fecha) return a.fecha>b.fecha?1:-1;
+      return a.hora>b.hora?1:-1;
+    });
+
+    const reservasFiltradas = filtroFecha
+      ? reservasOrdenadas.filter(r=>r.fecha===filtroFecha)
+      : reservasOrdenadas.filter(r=>r.fecha>=`${year}-${String(month+1).padStart(2,"0")}-01`);
+
+    // Agrupar por fecha
+    const porFecha = {};
+    reservasFiltradas.forEach(r=>{ if(!porFecha[r.fecha]) porFecha[r.fecha]=[]; porFecha[r.fecha].push(r); });
+
+    function abrirNueva(){
+      const hoyStr=`${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,"0")}-${String(today.getDate()).padStart(2,"0")}`;
+      setForm({ id:Date.now(), nombre:"", telefono:"", personas:2, fecha:hoyStr, hora:"13:00", notas:"" });
+    }
+
+    function guardar(){
+      if(!form.nombre.trim()||!form.fecha||!form.hora) return;
+      saveReserva({...form, nombre:form.nombre.trim(), telefono:form.telefono.trim()});
+      setForm(null); notify("✅ Reserva guardada");
+    }
+
+    const inp = { width:"100%",border:"1.5px solid #e0e0e0",borderRadius:9,padding:"9px 12px",fontSize:14,outline:"none",fontFamily:"inherit",boxSizing:"border-box" };
+    const lbl = { fontSize:12,fontWeight:700,color:"#555",display:"block",marginBottom:4 };
+
+    function formatFecha(f){
+      if(!f) return "";
+      const [y,m,d]=f.split("-");
+      const dow=dowIndex(parseInt(y),parseInt(m)-1,parseInt(d));
+      return `${DIAS[dow]} ${parseInt(d)} de ${MESES[parseInt(m)-1]}`;
+    }
+
+    return (
+      <div>
+        {/* Header */}
+        <div style={{ display:"flex",alignItems:"flex-start",justifyContent:"space-between",marginBottom:20,flexWrap:"wrap",gap:12 }}>
+          <div>
+            <h3 style={{ margin:"0 0 4px",fontWeight:800,fontSize:19 }}>📞 Reservas</h3>
+            <p style={{ margin:0,color:"#aaa",fontSize:13 }}>Reservas de clientes del restaurante. También puedes añadirlas desde Telegram.</p>
+          </div>
+          <div style={{ display:"flex",gap:8,alignItems:"center",flexWrap:"wrap" }}>
+            <input type="date" value={filtroFecha} onChange={e=>setFiltroFecha(e.target.value)}
+              style={{ border:"1.5px solid #e0e0e0",borderRadius:9,padding:"8px 12px",fontSize:13,outline:"none",fontFamily:"inherit" }}/>
+            {filtroFecha&&<button onClick={()=>setFiltroFecha("")} style={{ background:"#f0f0f0",border:"none",borderRadius:8,padding:"8px 12px",cursor:"pointer",fontWeight:600,color:"#666",fontSize:13 }}>✕ Quitar filtro</button>}
+            <button onClick={abrirNueva} style={{ background:"#E07A5F",color:"#fff",border:"none",borderRadius:10,padding:"10px 18px",fontWeight:700,cursor:"pointer",fontSize:14 }}>+ Nueva reserva</button>
+          </div>
+        </div>
+
+        {/* Stats rápidas */}
+        <div style={{ display:"flex",gap:10,marginBottom:20,flexWrap:"wrap" }}>
+          {[
+            { label:"Hoy", count:reservas.filter(r=>r.fecha===`${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,"0")}-${String(today.getDate()).padStart(2,"0")}`).length, color:"#E07A5F" },
+            { label:"Este mes", count:reservas.filter(r=>r.fecha.startsWith(hoy)).length, color:"#1B2432" },
+            { label:"Personas hoy", count:reservas.filter(r=>r.fecha===`${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,"0")}-${String(today.getDate()).padStart(2,"0")}`).reduce((s,r)=>s+parseInt(r.personas||0),0), color:"#2D6A4F" },
+          ].map(s=>(
+            <div key={s.label} style={{ background:"#fff",borderRadius:12,padding:"12px 18px",boxShadow:"0 2px 8px rgba(0,0,0,.05)",textAlign:"center",minWidth:100 }}>
+              <div style={{ fontSize:24,fontWeight:900,color:s.color }}>{s.count}</div>
+              <div style={{ fontSize:11,color:"#aaa",fontWeight:700 }}>{s.label.toUpperCase()}</div>
+            </div>
+          ))}
+        </div>
+
+        {/* Lista agrupada por fecha */}
+        {Object.keys(porFecha).length===0?(
+          <div style={{ background:"#fff",borderRadius:18,padding:52,textAlign:"center" }}>
+            <div style={{ fontSize:48,marginBottom:10 }}>📋</div>
+            <div style={{ fontSize:16,fontWeight:700,color:"#aaa" }}>Sin reservas</div>
+            <div style={{ fontSize:13,color:"#ccc",marginTop:6 }}>Añade una pulsando "+ Nueva reserva"</div>
+          </div>
+        ):Object.entries(porFecha).map(([fecha,resDelDia])=>{
+          const totalPersonas=resDelDia.reduce((s,r)=>s+parseInt(r.personas||0),0);
+          const esHoy=fecha===`${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,"0")}-${String(today.getDate()).padStart(2,"0")}`;
+          return (
+            <div key={fecha} style={{ marginBottom:20 }}>
+              <div style={{ display:"flex",alignItems:"center",gap:10,marginBottom:10 }}>
+                <div style={{ fontWeight:800,fontSize:16,color:esHoy?"#E07A5F":"#1B2432" }}>{formatFecha(fecha)}{esHoy&&" — HOY"}</div>
+                <div style={{ fontSize:13,color:"#aaa" }}>{resDelDia.length} reserva{resDelDia.length!==1?"s":""} · {totalPersonas} personas</div>
+              </div>
+              <div style={{ display:"flex",flexDirection:"column",gap:8 }}>
+                {resDelDia.map(r=>(
+                  <div key={r.id} style={{ background:"#fff",borderRadius:13,padding:"14px 18px",boxShadow:"0 2px 10px rgba(0,0,0,.06)",display:"flex",alignItems:"center",gap:14,flexWrap:"wrap",borderLeft:`4px solid ${r.personas>=6?"#E07A5F":r.personas>=4?"#b08800":"#81B29A"}` }}>
+                    <div style={{ fontSize:20,fontWeight:900,color:"#1B2432",minWidth:48 }}>{r.hora}</div>
+                    <div style={{ flex:1,minWidth:150 }}>
+                      <div style={{ fontWeight:700,fontSize:15 }}>{r.nombre}</div>
+                      <div style={{ fontSize:13,color:"#888",marginTop:2,display:"flex",gap:12,flexWrap:"wrap" }}>
+                        {r.telefono&&<span>📞 {r.telefono}</span>}
+                        <span style={{ fontWeight:700,color:r.personas>=6?"#E07A5F":r.personas>=4?"#b08800":"#2D6A4F" }}>👥 {r.personas} personas</span>
+                      </div>
+                      {r.notas&&<div style={{ fontSize:12,color:"#aaa",marginTop:4 }}>💬 {r.notas}</div>}
+                    </div>
+                    {canEdit&&(
+                      <div style={{ display:"flex",gap:6" }}>
+                        <button onClick={()=>setForm({...r})} style={{ background:"#F4F1EC",border:"none",borderRadius:8,padding:"6px 12px",cursor:"pointer",fontWeight:600,color:"#555",fontSize:13 }}>✏️</button>
+                        <button onClick={()=>setDelConf2(r.id)} style={{ background:"#FFF0F0",border:"none",borderRadius:8,padding:"6px 10px",cursor:"pointer",color:"#C62828",fontSize:13 }}>🗑️</button>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          );
+        })}
+
+        {/* Modal nueva/editar reserva */}
+        {form&&(
+          <div style={S.overlay} onClick={()=>setForm(null)}>
+            <div style={{ ...S.modal,maxWidth:460,maxHeight:"90vh",overflowY:"auto" }} onClick={e=>e.stopPropagation()}>
+              <div style={{ fontWeight:800,fontSize:17,marginBottom:20 }}>{form.id&&reservas.find(r=>r.id===form.id)?"Editar reserva":"Nueva reserva"}</div>
+              <div style={{ display:"flex",flexDirection:"column",gap:14 }}>
+                <div>
+                  <label style={lbl}>Nombre del cliente</label>
+                  <input value={form.nombre} onChange={e=>setForm(f=>({...f,nombre:e.target.value}))} placeholder="José García..." style={inp}/>
+                </div>
+                <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:12 }}>
+                  <div>
+                    <label style={lbl}>Fecha</label>
+                    <input type="date" value={form.fecha} onChange={e=>setForm(f=>({...f,fecha:e.target.value}))} style={inp}/>
+                  </div>
+                  <div>
+                    <label style={lbl}>Hora</label>
+                    <select value={form.hora} onChange={e=>setForm(f=>({...f,hora:e.target.value}))} style={inp}>
+                      {HORAS.map(h=><option key={h} value={h}>{h}</option>)}
+                    </select>
+                  </div>
+                </div>
+                <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:12 }}>
+                  <div>
+                    <label style={lbl}>Personas</label>
+                    <input type="number" min="1" max="50" value={form.personas} onChange={e=>setForm(f=>({...f,personas:parseInt(e.target.value)||1}))} style={inp}/>
+                  </div>
+                  <div>
+                    <label style={lbl}>Teléfono</label>
+                    <input value={form.telefono} onChange={e=>setForm(f=>({...f,telefono:e.target.value}))} placeholder="666 123 456" style={inp}/>
+                  </div>
+                </div>
+                <div>
+                  <label style={lbl}>Notas (opcional)</label>
+                  <input value={form.notas} onChange={e=>setForm(f=>({...f,notas:e.target.value}))} placeholder="Alergia, cumpleaños, terraza..." style={inp}/>
+                </div>
+              </div>
+              <div style={{ display:"flex",gap:10,marginTop:20 }}>
+                <button onClick={()=>setForm(null)} style={{ flex:1,background:"#f0f0f0",border:"none",borderRadius:10,padding:12,cursor:"pointer",fontWeight:600,color:"#666" }}>Cancelar</button>
+                <button onClick={guardar} disabled={!form.nombre.trim()||!form.fecha||!form.hora}
+                  style={{ flex:2,background:form.nombre.trim()?"#E07A5F":"#ccc",color:"#fff",border:"none",borderRadius:10,padding:12,cursor:"pointer",fontWeight:800,fontSize:14 }}>
+                  Guardar reserva
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Confirmar borrar */}
+        {delConf2&&(
+          <div style={S.overlay} onClick={()=>setDelConf2(null)}>
+            <div style={{ ...S.modal,maxWidth:320 }} onClick={e=>e.stopPropagation()}>
+              <div style={{ fontSize:40,textAlign:"center",marginBottom:12 }}>🗑️</div>
+              <div style={{ fontWeight:800,fontSize:16,textAlign:"center",marginBottom:8 }}>¿Eliminar reserva?</div>
+              <div style={{ color:"#aaa",fontSize:13,textAlign:"center",marginBottom:22 }}>Esta acción no se puede deshacer.</div>
+              <div style={{ display:"flex",gap:10 }}>
+                <button onClick={()=>setDelConf2(null)} style={{ flex:1,background:"#f0f0f0",border:"none",borderRadius:10,padding:12,cursor:"pointer",fontWeight:600 }}>Cancelar</button>
+                <button onClick={()=>{ deleteReserva(delConf2); setDelConf2(null); notify("🗑️ Reserva eliminada","warn"); }} style={{ flex:1,background:"#C62828",color:"#fff",border:"none",borderRadius:10,padding:12,cursor:"pointer",fontWeight:700 }}>Eliminar</button>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  }
 
   function ViewDisponibilidad({ disponibilidad }){
     const mk = mesKey(year, month);
@@ -1525,6 +1718,7 @@ export default function App() {
         {view==="tabla"      && <ViewTabla/>}
         {view==="horas"      && canSeeHoras && <ViewHoras/>}
         {view==="cambios"    && <ViewCambios/>}
+        {view==="reservas" && <ViewReservas/>}
         {view==="disponibilidad" && <ViewDisponibilidad disponibilidad={disponibilidad}/>}
         {view==="empleados"  && <ViewEmpleados/>}
       </div>
