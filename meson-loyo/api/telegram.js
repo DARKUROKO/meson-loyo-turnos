@@ -1,8 +1,7 @@
-// api/telegram.js — Webhook del bot de Telegram para Mesón do Loyo
-// Desplegado automáticamente por Vercel en: https://tu-app.vercel.app/api/telegram
+// api/telegram.js — Bot de Telegram con IA y audio para Mesón do Loyo
 
 import { initializeApp, getApps } from "firebase/app";
-import { getDatabase, ref, set } from "firebase/database";
+import { getDatabase, ref, set, get } from "firebase/database";
 
 const firebaseConfig = {
   apiKey:            "AIzaSyBTVC5mQAW2hmKX5Bo6iFlXDpgtB0cBvUE",
@@ -14,182 +13,251 @@ const firebaseConfig = {
   appId:             "1:1052148784587:web:752862e39c5345660caa4e",
 };
 
-// Evitar inicializar Firebase múltiples veces en Vercel
 const app = getApps().length ? getApps()[0] : initializeApp(firebaseConfig);
-const db = getDatabase(app);
+const db  = getDatabase(app);
 
-// Token del bot — ponlo como variable de entorno en Vercel (Settings > Environment Variables)
-// Nombre: TELEGRAM_BOT_TOKEN  Valor: el token que te da @BotFather
-const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
-
-// IDs de Telegram autorizados para añadir reservas (pon el tuyo)
-// Para saber tu ID escríbele a @userinfobot en Telegram
+const BOT_TOKEN      = process.env.TELEGRAM_BOT_TOKEN;
 const AUTHORIZED_IDS = (process.env.TELEGRAM_AUTHORIZED_IDS || "").split(",").map(id => id.trim());
 
-// ── Parsear mensaje de texto a reserva ──────────────────────────────────────
-// Formato aceptado (flexible):
-//   Mesa 4 domingo 13:30 José 666123456
-//   Reserva 2 personas viernes 21:00 María notas: terraza
-//   Mesa para 6 el sábado 14 de abril a las 13:30 a nombre de Ramón 600000000
-function parsearReserva(texto) {
-  const t = texto.toLowerCase();
-
-  // Número de personas
-  const personasMatch = texto.match(/(\d+)\s*(?:persona[s]?|pax|comensal[es]?)?/i);
-  const personas = personasMatch ? parseInt(personasMatch[1]) : null;
-
-  // Hora
-  const horaMatch = texto.match(/\b(\d{1,2})[:.hH](\d{2})\b/);
-  const hora = horaMatch ? `${String(horaMatch[1]).padStart(2,"0")}:${horaMatch[2]}` : null;
-
-  // Fecha: buscar día del mes o nombre del día
-  const hoy = new Date();
-  let fecha = null;
-
-  // Número de día del mes
-  const diaNumMatch = texto.match(/\b(el\s+)?(\d{1,2})\s*(?:de\s+)?(?:enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|octubre|noviembre|diciembre)?/i);
-
-  // Día de la semana
-  const dias = { lunes:1,martes:2,miércoles:3,miercoles:3,jueves:4,viernes:5,sábado:6,sabado:6,domingo:0,hoy:null,mañana:null };
-  const meses = { enero:0,febrero:1,marzo:2,abril:3,mayo:4,junio:5,julio:6,agosto:7,septiembre:8,octubre:9,noviembre:10,diciembre:11 };
-
-  for(const [nombre, dow] of Object.entries(dias)) {
-    if(t.includes(nombre)) {
-      const d = new Date();
-      if(nombre==="hoy") { fecha = fmtFecha(d); break; }
-      if(nombre==="mañana") { d.setDate(d.getDate()+1); fecha=fmtFecha(d); break; }
-      // Próximo día de esa semana
-      let diff = dow - d.getDay();
-      if(diff <= 0) diff += 7;
-      d.setDate(d.getDate() + diff);
-      fecha = fmtFecha(d);
-      break;
-    }
-  }
-
-  // Mes en texto
-  let mesNum = null;
-  for(const [nombre, num] of Object.entries(meses)) {
-    if(t.includes(nombre)) { mesNum = num; break; }
-  }
-
-  // Si hay número de día y mes
-  const diaMatch = texto.match(/\b(\d{1,2})\b/g);
-  if(!fecha && diaMatch) {
-    for(const d of diaMatch) {
-      const n = parseInt(d);
-      if(n >= 1 && n <= 31 && n !== personas) {
-        const f = new Date(hoy.getFullYear(), mesNum!==null?mesNum:hoy.getMonth(), n);
-        if(f < hoy) f.setFullYear(f.getFullYear()+1);
-        fecha = fmtFecha(f);
-        break;
-      }
-    }
-  }
-
-  // Nombre: texto que viene después de "nombre de", "a nombre", o al final sin números
-  let nombre = "";
-  const nombreMatch = texto.match(/(?:a\s+nombre\s+de|nombre[:\s]+)\s*([A-ZÁÉÍÓÚÑa-záéíóúñ]+(?:\s+[A-ZÁÉÍÓÚÑa-záéíóúñ]+)?)/i);
-  if(nombreMatch) nombre = nombreMatch[1];
-  else {
-    // Último bloque de texto sin números y sin palabras clave
-    const palabrasClave = ["mesa","reserva","persona","pax","para","el","la","de","a","las","los","del","nombre","domingo","lunes","martes","miércoles","jueves","viernes","sábado","hoy","mañana","enero","febrero","marzo","abril","mayo","junio","julio","agosto","septiembre","octubre","noviembre","diciembre"];
-    const palabras = texto.split(/\s+/).filter(w=>{
-      if(/^\d/.test(w)) return false;
-      const wl=w.toLowerCase().replace(/[^a-záéíóúñ]/g,"");
-      return wl.length>2 && !palabrasClave.includes(wl);
-    });
-    if(palabras.length>0) nombre = palabras[palabras.length-1];
-  }
-
-  // Teléfono
-  const telMatch = texto.match(/(?:6|7|8|9)\d{8}/);
-  const telefono = telMatch ? telMatch[0] : "";
-
-  // Notas: todo lo que venga después de "notas:" o "nota:"
-  const notasMatch = texto.match(/notas?:\s*(.+)/i);
-  const notas = notasMatch ? notasMatch[1].trim() : "";
-
-  return { personas, hora, fecha, nombre: capitalize(nombre), telefono, notas };
+async function sendTelegram(chatId, texto) {
+  await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
+    method:  "POST",
+    headers: { "Content-Type": "application/json" },
+    body:    JSON.stringify({ chat_id: chatId, text: texto, parse_mode: "HTML" })
+  });
 }
 
 function fmtFecha(d) {
   return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
 }
-function capitalize(s) {
-  return s ? s.charAt(0).toUpperCase() + s.slice(1).toLowerCase() : s;
+
+function fechaLegible(fechaStr) {
+  if (!fechaStr) return "sin fecha";
+  const dias  = ["Dom","Lun","Mar","Mié","Jue","Vie","Sáb"];
+  const meses = ["enero","febrero","marzo","abril","mayo","junio","julio","agosto","septiembre","octubre","noviembre","diciembre"];
+  const d = new Date(fechaStr + "T12:00:00");
+  return `${dias[d.getDay()]} ${d.getDate()} de ${meses[d.getMonth()]}`;
 }
 
-async function sendTelegram(chatId, texto) {
-  await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
-    method:"POST",
-    headers:{"Content-Type":"application/json"},
-    body: JSON.stringify({ chat_id:chatId, text:texto, parse_mode:"HTML" })
+// ── Descargar audio de Telegram ───────────────────────────────────────────
+async function descargarAudio(fileId) {
+  const infoRes = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/getFile?file_id=${fileId}`);
+  const info    = await infoRes.json();
+  if (!info.ok) return null;
+  const filePath = info.result.file_path;
+  const audioRes = await fetch(`https://api.telegram.org/file/bot${BOT_TOKEN}/${filePath}`);
+  const buffer   = await audioRes.arrayBuffer();
+  return Buffer.from(buffer).toString("base64");
+}
+
+// ── Prompt común para extraer reserva ────────────────────────────────────
+function promptReserva(hoy) {
+  const manana = fmtFecha(new Date(Date.now() + 86400000));
+  return `Hoy es ${hoy}. Extrae los datos de reserva de restaurante. Responde SOLO con JSON válido sin texto adicional:
+{
+  "nombre": "nombre del cliente o null",
+  "fecha": "YYYY-MM-DD o null",
+  "hora": "HH:MM en 24h o null",
+  "personas": numero entero o null,
+  "telefono": "numero sin espacios o null",
+  "notas": "notas adicionales o null",
+  "esReserva": true o false
+}
+Reglas fecha: "mañana"=${manana}, "hoy"=${hoy}, "domingo/lunes/etc"=próximo ese día de semana, "el 15"=próximo día 15.
+Reglas hora: "2 de la tarde"=14:00, "9 de la noche"=21:00, "mediodía"=13:00, "1 y media"=13:30.`;
+}
+
+// ── Parsear texto con IA ──────────────────────────────────────────────────
+async function parsearTexto(texto) {
+  const hoy = fmtFecha(new Date());
+  const res = await fetch("https://api.anthropic.com/v1/messages", {
+    method:  "POST",
+    headers: {
+      "Content-Type":    "application/json",
+      "x-api-key":       process.env.ANTHROPIC_API_KEY,
+      "anthropic-version": "2023-06-01"
+    },
+    body: JSON.stringify({
+      model:      "claude-haiku-4-5-20251001",
+      max_tokens: 300,
+      messages:   [{ role: "user", content: `${promptReserva(hoy)}\n\nMensaje de texto: "${texto}"` }]
+    })
   });
+  const data = await res.json();
+  const raw  = data.content?.[0]?.text || "{}";
+  try { return JSON.parse(raw.replace(/```json|```/g, "").trim()); }
+  catch { return { esReserva: false }; }
 }
 
-// ── Handler principal ────────────────────────────────────────────────────────
+// ── Parsear audio con IA ──────────────────────────────────────────────────
+async function parsearAudio(audioBase64, mimeType = "audio/ogg") {
+  const hoy = fmtFecha(new Date());
+  const res = await fetch("https://api.anthropic.com/v1/messages", {
+    method:  "POST",
+    headers: {
+      "Content-Type":      "application/json",
+      "x-api-key":         process.env.ANTHROPIC_API_KEY,
+      "anthropic-version": "2023-06-01"
+    },
+    body: JSON.stringify({
+      model:      "claude-sonnet-4-6",
+      max_tokens: 400,
+      messages: [{
+        role: "user",
+        content: [
+          {
+            type:   "document",
+            source: { type: "base64", media_type: mimeType, data: audioBase64 }
+          },
+          {
+            type: "text",
+            text: `${promptReserva(hoy)}\n\nEscucha el audio y extrae los datos de la reserva.`
+          }
+        ]
+      }]
+    })
+  });
+  const data = await res.json();
+  const raw  = data.content?.[0]?.text || "{}";
+  try { return JSON.parse(raw.replace(/```json|```/g, "").trim()); }
+  catch { return { esReserva: false }; }
+}
+
+// ── Confirmar y guardar reserva ───────────────────────────────────────────
+async function guardarReserva(chatId, datos) {
+  const faltantes = [];
+  if (!datos.nombre)   faltantes.push("nombre del cliente");
+  if (!datos.fecha)    faltantes.push("fecha");
+  if (!datos.hora)     faltantes.push("hora");
+  if (!datos.personas) faltantes.push("número de personas");
+
+  if (faltantes.length > 0) {
+    await sendTelegram(chatId,
+      `⚠️ Casi lo tengo, pero me falta: <b>${faltantes.join(", ")}</b>.\n\nRepítemelo añadiendo esa información.`
+    );
+    return;
+  }
+
+  const id = Date.now();
+  await set(ref(db, `reservas/${id}`), {
+    id,
+    nombre:    datos.nombre,
+    fecha:     datos.fecha,
+    hora:      datos.hora,
+    personas:  datos.personas,
+    telefono:  datos.telefono || "",
+    notas:     datos.notas   || "",
+    creadoPor: "telegram"
+  });
+
+  await sendTelegram(chatId,
+    `✅ <b>Reserva guardada</b>\n\n` +
+    `👤 ${datos.nombre}\n` +
+    `📅 ${fechaLegible(datos.fecha)} a las ${datos.hora}\n` +
+    `👥 ${datos.personas} persona${datos.personas !== 1 ? "s" : ""}` +
+    `${datos.telefono ? "\n📞 " + datos.telefono : ""}` +
+    `${datos.notas    ? "\n💬 " + datos.notas    : ""}`
+  );
+}
+
+// ── Handler principal ─────────────────────────────────────────────────────
 export default async function handler(req, res) {
-  if(req.method !== "POST") return res.status(200).json({ ok:true });
+  if (req.method !== "POST") return res.status(200).json({ ok: true });
 
   try {
     const { message } = req.body;
-    if(!message) return res.status(200).json({ ok:true });
+    if (!message) return res.status(200).json({ ok: true });
 
     const chatId = message.chat.id;
     const userId = String(message.from.id);
+    const nombre = message.from.first_name || "";
     const texto  = message.text || "";
 
-    // Comprobar autorización
-    if(AUTHORIZED_IDS.length > 0 && !AUTHORIZED_IDS.includes(userId)) {
+    // Autorización
+    if (AUTHORIZED_IDS.length > 0 && !AUTHORIZED_IDS.includes(userId)) {
       await sendTelegram(chatId, "❌ No tienes permiso para usar este bot.");
-      return res.status(200).json({ ok:true });
+      return res.status(200).json({ ok: true });
     }
 
-    // Comando /start o /ayuda
-    if(texto.startsWith("/start") || texto.startsWith("/ayuda")) {
-      await sendTelegram(chatId, `🍽️ <b>Bot de reservas — Mesón do Loyo</b>\n\nEscríbeme la reserva en lenguaje natural:\n\n<b>Ejemplos:</b>\n• <code>Mesa 4 domingo 13:30 José 666123456</code>\n• <code>Reserva 2 personas mañana 21:00 María</code>\n• <code>Mesa 6 sábado 3 de mayo 14:00 Ramón 600000001 notas: terraza</code>\n\nTambién puedes usar /lista para ver las reservas de hoy.`);
-      return res.status(200).json({ ok:true });
+    // /start o /ayuda
+    if (texto.startsWith("/start") || texto.startsWith("/ayuda")) {
+      await sendTelegram(chatId,
+        `🍽️ <b>Bot de reservas — Mesón do Loyo</b>\n\nHola ${nombre}! Puedes escribirme o mandarme un <b>audio</b> con la reserva como quieras:\n\n` +
+        `• <i>"Mesa para 4 el domingo a las 13:30, a nombre de José, tel 666123456"</i>\n` +
+        `• <i>"El sábado viene una familia de 6 a las 2 de la tarde, García, terraza"</i>\n` +
+        `• 🎤 <i>O simplemente mándame un audio diciéndomelo</i>\n\n` +
+        `Comandos:\n/lista — reservas de hoy\n/reservas YYYY-MM-DD — reservas de un día`
+      );
+      return res.status(200).json({ ok: true });
     }
 
-    // Comando /lista — reservas de hoy
-    if(texto.startsWith("/lista")) {
-      const { ref: dbRef, get } = await import("firebase/database");
+    // /lista
+    if (texto.startsWith("/lista")) {
       const snap = await get(ref(db, "reservas"));
       const todas = snap.val() ? Object.values(snap.val()) : [];
       const hoyStr = fmtFecha(new Date());
-      const hoy = todas.filter(r=>r.fecha===hoyStr).sort((a,b)=>a.hora>b.hora?1:-1);
-      if(hoy.length===0) { await sendTelegram(chatId, "📋 No hay reservas para hoy."); }
-      else {
-        const lista = hoy.map(r=>`• <b>${r.hora}</b> — ${r.nombre}, ${r.personas} pax${r.telefono?" ("+r.telefono+")":""}${r.notas?" — "+r.notas:""}`).join("\n");
-        await sendTelegram(chatId, `📋 <b>Reservas de hoy (${hoyStr}):</b>\n${lista}\n\nTotal: ${hoy.reduce((s,r)=>s+parseInt(r.personas||0),0)} personas`);
+      const hoy = todas.filter(r => r.fecha === hoyStr).sort((a,b) => a.hora > b.hora ? 1 : -1);
+      if (hoy.length === 0) {
+        await sendTelegram(chatId, "📋 No hay reservas para hoy.");
+      } else {
+        const lista  = hoy.map(r => `• <b>${r.hora}</b> — ${r.nombre}, ${r.personas} pax${r.telefono ? " ("+r.telefono+")" : ""}${r.notas ? "\n  💬 "+r.notas : ""}`).join("\n");
+        const total  = hoy.reduce((s,r) => s + parseInt(r.personas||0), 0);
+        await sendTelegram(chatId, `📋 <b>Reservas de hoy:</b>\n\n${lista}\n\n👥 Total: ${total} personas`);
       }
-      return res.status(200).json({ ok:true });
+      return res.status(200).json({ ok: true });
     }
 
-    // Parsear reserva del mensaje
-    const r = parsearReserva(texto);
-
-    if(!r.nombre || !r.fecha || !r.hora || !r.personas) {
-      await sendTelegram(chatId, `⚠️ No he podido entender la reserva. Inténtalo así:\n\n<code>Mesa 4 domingo 13:30 José 666123456</code>\n\nUsa /ayuda para más ejemplos.`);
-      return res.status(200).json({ ok:true });
+    // /reservas YYYY-MM-DD
+    if (texto.startsWith("/reservas")) {
+      const fecha  = texto.split(" ")[1] || fmtFecha(new Date());
+      const snap   = await get(ref(db, "reservas"));
+      const todas  = snap.val() ? Object.values(snap.val()) : [];
+      const delDia = todas.filter(r => r.fecha === fecha).sort((a,b) => a.hora > b.hora ? 1 : -1);
+      if (delDia.length === 0) {
+        await sendTelegram(chatId, `📋 No hay reservas para el ${fechaLegible(fecha)}.`);
+      } else {
+        const lista = delDia.map(r => `• <b>${r.hora}</b> — ${r.nombre}, ${r.personas} pax${r.telefono ? " ("+r.telefono+")" : ""}${r.notas ? "\n  💬 "+r.notas : ""}`).join("\n");
+        const total = delDia.reduce((s,r) => s + parseInt(r.personas||0), 0);
+        await sendTelegram(chatId, `📋 <b>Reservas del ${fechaLegible(fecha)}:</b>\n\n${lista}\n\n👥 Total: ${total} personas`);
+      }
+      return res.status(200).json({ ok: true });
     }
 
-    // Guardar en Firebase
-    const id = Date.now();
-    await set(ref(db, `reservas/${id}`), { id, ...r, creadoPor:"telegram" });
+    // ── Audio / voz ───────────────────────────────────────────────────────
+    const esAudio = message.voice || message.audio;
+    if (esAudio) {
+      await sendTelegram(chatId, "🎤 Escuchando tu mensaje de voz...");
+      const fileId    = (message.voice || message.audio).file_id;
+      const mimeType  = (message.voice || message.audio).mime_type || "audio/ogg";
+      const audioB64  = await descargarAudio(fileId);
+      if (!audioB64) {
+        await sendTelegram(chatId, "❌ No he podido descargar el audio. Inténtalo de nuevo.");
+        return res.status(200).json({ ok: true });
+      }
+      const datos = await parsearAudio(audioB64, mimeType);
+      if (!datos.esReserva) {
+        await sendTelegram(chatId, `🤔 No he entendido eso como una reserva en el audio.\n\nPrueba diciendo algo como:\n<i>"Mesa para cuatro el sábado a las dos de la tarde, a nombre de María"</i>`);
+        return res.status(200).json({ ok: true });
+      }
+      await guardarReserva(chatId, datos);
+      return res.status(200).json({ ok: true });
+    }
 
-    const dias = ["Dom","Lun","Mar","Mié","Jue","Vie","Sáb"];
-    const fechaObj = new Date(r.fecha+"T12:00:00");
-    const fechaLeg = `${dias[fechaObj.getDay()]} ${fechaObj.getDate()}/${fechaObj.getMonth()+1}`;
+    // ── Texto libre ───────────────────────────────────────────────────────
+    if (texto && !texto.startsWith("/")) {
+      const datos = await parsearTexto(texto);
+      if (!datos.esReserva) {
+        await sendTelegram(chatId,
+          `🤔 No he entendido eso como una reserva.\n\nPrueba con algo como:\n<i>"Mesa para 4 el sábado a las 14:00, a nombre de María"</i>\n\nO mándame un 🎤 audio.\nUsa /ayuda para más ejemplos.`
+        );
+        return res.status(200).json({ ok: true });
+      }
+      await guardarReserva(chatId, datos);
+    }
 
-    await sendTelegram(chatId,
-      `✅ <b>Reserva guardada</b>\n\n👤 ${r.nombre}\n📅 ${fechaLeg} a las ${r.hora}\n👥 ${r.personas} personas${r.telefono?"\n📞 "+r.telefono:""}${r.notas?"\n💬 "+r.notas:""}`
-    );
-
-  } catch(err) {
+  } catch (err) {
     console.error("Error en webhook Telegram:", err);
   }
 
-  return res.status(200).json({ ok:true });
+  return res.status(200).json({ ok: true });
 }
