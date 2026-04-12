@@ -44,86 +44,108 @@ async function descargarAudio(fileId) {
   const infoRes = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/getFile?file_id=${fileId}`);
   const info    = await infoRes.json();
   if (!info.ok) return null;
-  const filePath = info.result.file_path;
-  const audioRes = await fetch(`https://api.telegram.org/file/bot${BOT_TOKEN}/${filePath}`);
+  const audioRes = await fetch(`https://api.telegram.org/file/bot${BOT_TOKEN}/${info.result.file_path}`);
   const buffer   = await audioRes.arrayBuffer();
   return Buffer.from(buffer).toString("base64");
 }
 
-// ── Prompt común para extraer reserva ────────────────────────────────────
+// ── Prompt para extraer reserva ───────────────────────────────────────────
 function promptReserva(hoy) {
   const manana = fmtFecha(new Date(Date.now() + 86400000));
-  return `Hoy es ${hoy}. Extrae los datos de reserva de restaurante. Responde SOLO con JSON válido sin texto adicional:
-{
-  "nombre": "nombre del cliente o null",
-  "fecha": "YYYY-MM-DD o null",
-  "hora": "HH:MM en 24h o null",
-  "personas": numero entero o null,
-  "telefono": "numero sin espacios o null",
-  "notas": "notas adicionales o null",
-  "esReserva": true o false
-}
-Reglas fecha: "mañana"=${manana}, "hoy"=${hoy}, "domingo/lunes/etc"=próximo ese día de semana, "el 15"=próximo día 15.
-Reglas hora: "2 de la tarde"=14:00, "9 de la noche"=21:00, "mediodía"=13:00, "1 y media"=13:30.`;
+  return `Hoy es ${hoy}. Extrae datos de reserva de restaurante. Responde SOLO JSON sin texto extra:
+{"nombre":"string o null","fecha":"YYYY-MM-DD o null","hora":"HH:MM 24h o null","personas":numero o null,"telefono":"string o null","notas":"string o null","esReserva":true/false}
+Fecha: "mañana"=${manana},"hoy"=${hoy},dias semana=próximo. Hora: "2 tarde"=14:00,"9 noche"=21:00,"mediodía"=13:00.`;
 }
 
-// ── Parsear texto con IA ──────────────────────────────────────────────────
+// ── Parsear texto con Claude Haiku ────────────────────────────────────────
 async function parsearTexto(texto) {
   const hoy = fmtFecha(new Date());
   const res = await fetch("https://api.anthropic.com/v1/messages", {
-    method:  "POST",
+    method: "POST",
     headers: {
-      "Content-Type":    "application/json",
-      "x-api-key":       process.env.ANTHROPIC_API_KEY,
+      "Content-Type": "application/json",
+      "x-api-key": process.env.ANTHROPIC_API_KEY,
       "anthropic-version": "2023-06-01"
     },
     body: JSON.stringify({
-      model:      "claude-haiku-4-5-20251001",
+      model: "claude-haiku-4-5-20251001",
       max_tokens: 300,
-      messages:   [{ role: "user", content: `${promptReserva(hoy)}\n\nMensaje de texto: "${texto}"` }]
+      messages: [{ role: "user", content: `${promptReserva(hoy)}\n\nMensaje: "${texto}"` }]
     })
   });
   const data = await res.json();
-  const raw  = data.content?.[0]?.text || "{}";
+  const raw = data.content?.[0]?.text || "{}";
   try { return JSON.parse(raw.replace(/```json|```/g, "").trim()); }
   catch { return { esReserva: false }; }
 }
 
-// ── Parsear audio con IA ──────────────────────────────────────────────────
-async function parsearAudio(audioBase64, mimeType = "audio/ogg") {
-  const hoy = fmtFecha(new Date());
-  const res = await fetch("https://api.anthropic.com/v1/messages", {
-    method:  "POST",
-    headers: {
-      "Content-Type":      "application/json",
-      "x-api-key":         process.env.ANTHROPIC_API_KEY,
-      "anthropic-version": "2023-06-01"
-    },
-    body: JSON.stringify({
-      model:      "claude-sonnet-4-6",
-      max_tokens: 400,
-      messages: [{
-        role: "user",
-        content: [
-          {
-            type:   "document",
-            source: { type: "base64", media_type: mimeType, data: audioBase64 }
-          },
-          {
-            type: "text",
-            text: `${promptReserva(hoy)}\n\nEscucha el audio y extrae los datos de la reserva.`
-          }
-        ]
-      }]
-    })
-  });
-  const data = await res.json();
-  const raw  = data.content?.[0]?.text || "{}";
-  try { return JSON.parse(raw.replace(/```json|```/g, "").trim()); }
-  catch { return { esReserva: false }; }
+// ── Transcribir audio con Whisper (OpenAI) si hay API key, si no con Claude ──
+async function transcribirAudio(audioBase64, mimeType) {
+  // Opción 1: OpenAI Whisper (si hay OPENAI_API_KEY)
+  if (process.env.OPENAI_API_KEY) {
+    try {
+      // Convertir base64 a Blob para FormData
+      const binaryStr = atob(audioBase64);
+      const bytes = new Uint8Array(binaryStr.length);
+      for (let i = 0; i < binaryStr.length; i++) bytes[i] = binaryStr.charCodeAt(i);
+      const blob = new Blob([bytes], { type: mimeType });
+      const formData = new FormData();
+      formData.append("file", blob, "audio.ogg");
+      formData.append("model", "whisper-1");
+      formData.append("language", "es");
+      const res = await fetch("https://api.openai.com/v1/audio/transcriptions", {
+        method: "POST",
+        headers: { "Authorization": `Bearer ${process.env.OPENAI_API_KEY}` },
+        body: formData
+      });
+      const data = await res.json();
+      return data.text || null;
+    } catch(e) {
+      console.error("Whisper error:", e);
+    }
+  }
+
+  // Opción 2: Claude con beta de audio (para formatos compatibles)
+  try {
+    const res = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-api-key": process.env.ANTHROPIC_API_KEY,
+        "anthropic-version": "2023-06-01",
+        "anthropic-beta": "audio-1"
+      },
+      body: JSON.stringify({
+        model: "claude-sonnet-4-6",
+        max_tokens: 500,
+        messages: [{
+          role: "user",
+          content: [
+            { type: "audio", source: { type: "base64", media_type: mimeType, data: audioBase64 } },
+            { type: "text", text: "Transcribe exactamente lo que dice este audio en español. Solo el texto, nada más." }
+          ]
+        }]
+      })
+    });
+    const data = await res.json();
+    console.log("Claude audio response:", JSON.stringify(data).slice(0, 200));
+    if (data.content?.[0]?.text) return data.content[0].text;
+  } catch(e) {
+    console.error("Claude audio error:", e);
+  }
+
+  return null;
 }
 
-// ── Confirmar y guardar reserva ───────────────────────────────────────────
+// ── Parsear audio: transcribir y luego extraer reserva ────────────────────
+async function parsearAudio(audioBase64, mimeType) {
+  const transcripcion = await transcribirAudio(audioBase64, mimeType);
+  if (!transcripcion) return { esReserva: false };
+  console.log("Transcripción:", transcripcion);
+  return await parsearTexto(transcripcion);
+}
+
+// ── Guardar reserva ───────────────────────────────────────────────────────
 async function guardarReserva(chatId, datos) {
   const faltantes = [];
   if (!datos.nombre)   faltantes.push("nombre del cliente");
@@ -140,20 +162,14 @@ async function guardarReserva(chatId, datos) {
 
   const id = Date.now();
   await set(ref(db, `reservas/${id}`), {
-    id,
-    nombre:    datos.nombre,
-    fecha:     datos.fecha,
-    hora:      datos.hora,
-    personas:  datos.personas,
-    telefono:  datos.telefono || "",
-    notas:     datos.notas   || "",
-    creadoPor: "telegram"
+    id, nombre: datos.nombre, fecha: datos.fecha, hora: datos.hora,
+    personas: datos.personas, telefono: datos.telefono || "",
+    notas: datos.notas || "", creadoPor: "telegram"
   });
 
   await sendTelegram(chatId,
     `✅ <b>Reserva guardada</b>\n\n` +
-    `👤 ${datos.nombre}\n` +
-    `📅 ${fechaLegible(datos.fecha)} a las ${datos.hora}\n` +
+    `👤 ${datos.nombre}\n📅 ${fechaLegible(datos.fecha)} a las ${datos.hora}\n` +
     `👥 ${datos.personas} persona${datos.personas !== 1 ? "s" : ""}` +
     `${datos.telefono ? "\n📞 " + datos.telefono : ""}` +
     `${datos.notas    ? "\n💬 " + datos.notas    : ""}`
@@ -173,25 +189,22 @@ export default async function handler(req, res) {
     const nombre = message.from.first_name || "";
     const texto  = message.text || "";
 
-    // Autorización
     if (AUTHORIZED_IDS.length > 0 && !AUTHORIZED_IDS.includes(userId)) {
       await sendTelegram(chatId, "❌ No tienes permiso para usar este bot.");
       return res.status(200).json({ ok: true });
     }
 
-    // /start o /ayuda
+    // Comandos
     if (texto.startsWith("/start") || texto.startsWith("/ayuda")) {
       await sendTelegram(chatId,
-        `🍽️ <b>Bot de reservas — Mesón do Loyo</b>\n\nHola ${nombre}! Puedes escribirme o mandarme un <b>audio</b> con la reserva como quieras:\n\n` +
+        `🍽️ <b>Bot de reservas — Mesón do Loyo</b>\n\nHola ${nombre}! Escríbeme o mándame un 🎤 audio con la reserva:\n\n` +
         `• <i>"Mesa para 4 el domingo a las 13:30, a nombre de José, tel 666123456"</i>\n` +
-        `• <i>"El sábado viene una familia de 6 a las 2 de la tarde, García, terraza"</i>\n` +
-        `• 🎤 <i>O simplemente mándame un audio diciéndomelo</i>\n\n` +
+        `• <i>"El sábado viene una familia de 6 a las 2 de la tarde, García, terraza"</i>\n\n` +
         `Comandos:\n/lista — reservas de hoy\n/reservas YYYY-MM-DD — reservas de un día`
       );
       return res.status(200).json({ ok: true });
     }
 
-    // /lista
     if (texto.startsWith("/lista")) {
       const snap = await get(ref(db, "reservas"));
       const todas = snap.val() ? Object.values(snap.val()) : [];
@@ -200,18 +213,17 @@ export default async function handler(req, res) {
       if (hoy.length === 0) {
         await sendTelegram(chatId, "📋 No hay reservas para hoy.");
       } else {
-        const lista  = hoy.map(r => `• <b>${r.hora}</b> — ${r.nombre}, ${r.personas} pax${r.telefono ? " ("+r.telefono+")" : ""}${r.notas ? "\n  💬 "+r.notas : ""}`).join("\n");
-        const total  = hoy.reduce((s,r) => s + parseInt(r.personas||0), 0);
+        const lista = hoy.map(r => `• <b>${r.hora}</b> — ${r.nombre}, ${r.personas} pax${r.telefono ? " ("+r.telefono+")" : ""}${r.notas ? "\n  💬 "+r.notas : ""}`).join("\n");
+        const total = hoy.reduce((s,r) => s + parseInt(r.personas||0), 0);
         await sendTelegram(chatId, `📋 <b>Reservas de hoy:</b>\n\n${lista}\n\n👥 Total: ${total} personas`);
       }
       return res.status(200).json({ ok: true });
     }
 
-    // /reservas YYYY-MM-DD
     if (texto.startsWith("/reservas")) {
-      const fecha  = texto.split(" ")[1] || fmtFecha(new Date());
-      const snap   = await get(ref(db, "reservas"));
-      const todas  = snap.val() ? Object.values(snap.val()) : [];
+      const fecha = texto.split(" ")[1] || fmtFecha(new Date());
+      const snap = await get(ref(db, "reservas"));
+      const todas = snap.val() ? Object.values(snap.val()) : [];
       const delDia = todas.filter(r => r.fecha === fecha).sort((a,b) => a.hora > b.hora ? 1 : -1);
       if (delDia.length === 0) {
         await sendTelegram(chatId, `📋 No hay reservas para el ${fechaLegible(fecha)}.`);
@@ -223,32 +235,38 @@ export default async function handler(req, res) {
       return res.status(200).json({ ok: true });
     }
 
-    // ── Audio / voz ───────────────────────────────────────────────────────
-    const esAudio = message.voice || message.audio;
-    if (esAudio) {
-      await sendTelegram(chatId, "🎤 Escuchando tu mensaje de voz...");
-      const fileId    = (message.voice || message.audio).file_id;
-      const mimeType  = (message.voice || message.audio).mime_type || "audio/ogg";
-      const audioB64  = await descargarAudio(fileId);
-      if (!audioB64) {
-        await sendTelegram(chatId, "❌ No he podido descargar el audio. Inténtalo de nuevo.");
-        return res.status(200).json({ ok: true });
+    // Audio / voz
+    if (message.voice || message.audio) {
+      await sendTelegram(chatId, "🎤 Procesando tu mensaje de voz...");
+      try {
+        const audioObj = message.voice || message.audio;
+        const mimeType = message.voice ? "audio/ogg" : (audioObj.mime_type || "audio/ogg");
+        const audioB64 = await descargarAudio(audioObj.file_id);
+        if (!audioB64) {
+          await sendTelegram(chatId, "❌ No he podido descargar el audio. Inténtalo de nuevo.");
+          return res.status(200).json({ ok: true });
+        }
+        const datos = await parsearAudio(audioB64, mimeType);
+        if (!datos || !datos.esReserva) {
+          await sendTelegram(chatId,
+            `🤔 No he entendido el audio como una reserva.\n\nPrueba escribiéndome el mensaje en texto — funciona igual de bien:\n<i>"Mesa para 4 el sábado a las 14:00, María"</i>`
+          );
+          return res.status(200).json({ ok: true });
+        }
+        await guardarReserva(chatId, datos);
+      } catch(err) {
+        console.error("Error audio:", err);
+        await sendTelegram(chatId, "❌ Error procesando el audio. Por favor escríbeme la reserva como texto.");
       }
-      const datos = await parsearAudio(audioB64, mimeType);
-      if (!datos.esReserva) {
-        await sendTelegram(chatId, `🤔 No he entendido eso como una reserva en el audio.\n\nPrueba diciendo algo como:\n<i>"Mesa para cuatro el sábado a las dos de la tarde, a nombre de María"</i>`);
-        return res.status(200).json({ ok: true });
-      }
-      await guardarReserva(chatId, datos);
       return res.status(200).json({ ok: true });
     }
 
-    // ── Texto libre ───────────────────────────────────────────────────────
+    // Texto libre
     if (texto && !texto.startsWith("/")) {
       const datos = await parsearTexto(texto);
-      if (!datos.esReserva) {
+      if (!datos || !datos.esReserva) {
         await sendTelegram(chatId,
-          `🤔 No he entendido eso como una reserva.\n\nPrueba con algo como:\n<i>"Mesa para 4 el sábado a las 14:00, a nombre de María"</i>\n\nO mándame un 🎤 audio.\nUsa /ayuda para más ejemplos.`
+          `🤔 No he entendido eso como una reserva.\n\nPrueba con:\n<i>"Mesa para 4 el sábado a las 14:00, a nombre de María"</i>\n\nUsa /ayuda para más ejemplos.`
         );
         return res.status(200).json({ ok: true });
       }
@@ -256,7 +274,7 @@ export default async function handler(req, res) {
     }
 
   } catch (err) {
-    console.error("Error en webhook Telegram:", err);
+    console.error("Error webhook:", err);
   }
 
   return res.status(200).json({ ok: true });

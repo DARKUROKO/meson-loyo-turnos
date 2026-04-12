@@ -11,7 +11,9 @@ const EMPLOYEES_INIT = [
   { id:5, name:"Maikel",  color:"#b08800" },
   { id:6, name:"Sergio",  color:"#E65100" },
   { id:7, name:"Nilo",    color:"#00897B" },
-  { id:8, name:"Gonzalo", color:"#d63384" },
+  { id:8,  name:"Gonzalo", color:"#d63384" },
+  { id:9,  name:"Alba",    color:"#FF6D00" },
+  { id:10, name:"Aldara", color:"#00ACC1" },
 ];
 
 // ─── USUARIOS ─────────────────────────────────────────────────────────────────
@@ -24,7 +26,9 @@ const USUARIOS = [
   { id:6, nombre:"Maikel",  usuario:"maikel",  password:"maikel2024",  rol:"empleado", empId:5 },
   { id:7, nombre:"Sergio",  usuario:"sergio",  password:"sergio2024",  rol:"empleado", empId:6 },
   { id:8, nombre:"Nilo",    usuario:"nilo",    password:"nilo2024",    rol:"empleado", empId:7 },
-  { id:9, nombre:"Gonzalo", usuario:"gonzalo", password:"gonzalo2024", rol:"empleado", empId:8 },
+  { id:9,  nombre:"Gonzalo", usuario:"gonzalo", password:"gonzalo2024", rol:"empleado", empId:8  },
+  { id:10, nombre:"Alba",    usuario:"alba",    password:"alba2024",    rol:"empleado", empId:9  },
+  { id:11, nombre:"Aldara",  usuario:"aldara",  password:"aldara2024",  rol:"empleado", empId:10 },
 ];
 
 const TURNOS = {
@@ -862,8 +866,8 @@ export default function App() {
           const day=i+1, dow=dowIndex(year,month,day);
           const isToday=day===today.getDate()&&month===today.getMonth()&&year===today.getFullYear(), isWe=dow>=5;
           const trabajando=emps.filter(e=>!esLibre(shifts[e.id]?.[day]));
-          const medC=trabajando.filter(e=>(shifts[e.id][day]||[]).some(t=>t==="mediodia")).length;
-          const nocC=trabajando.filter(e=>(shifts[e.id][day]||[]).some(t=>t==="noche")).length;
+          const medC=trabajando.filter(e=>(shifts[e.id]?.[day]||[]).some(t=>t==="mediodia")).length;
+          const nocC=trabajando.filter(e=>(shifts[e.id]?.[day]||[]).some(t=>t==="noche")).length;
           return (
             <div key={day} style={{ background:"#fff",borderRadius:14,overflow:"hidden",boxShadow:isToday?"0 0 0 2px #E07A5F,0 4px 16px rgba(0,0,0,.1)":"0 2px 10px rgba(0,0,0,.06)",border:isToday?"2px solid #E07A5F":"2px solid transparent" }}>
               <div style={{ padding:"10px 14px",background:isToday?"#E07A5F":isWe?"#1B2432":"#2a3244",color:"#fff",display:"flex",alignItems:"center",gap:8 }}>
@@ -885,7 +889,7 @@ export default function App() {
               </div>
               <div style={{ padding:"10px 12px",display:"flex",flexDirection:"column",gap:5,minHeight:50 }}>
                 {trabajando.length===0?<div style={{ color:"#ccc",fontSize:12,textAlign:"center",padding:"6px 0" }}>Sin asignar</div>
-                :trabajando.map(e=>{ const eArr=shifts[e.id][day]||["libre"], eInfo=abrDia(eArr);
+                :trabajando.map(e=>{ const eArr=shifts[e.id]?.[day]||["libre"], eInfo=abrDia(eArr);
                   return <div key={e.id} onClick={()=>canEdit&&setModal({empId:e.id,day})} style={{ display:"flex",alignItems:"center",gap:7,cursor:canEdit?"pointer":"default",padding:"4px 7px",borderRadius:7,background:eInfo.bg }} onMouseEnter={x=>canEdit&&(x.currentTarget.style.opacity=".75")} onMouseLeave={x=>x.currentTarget.style.opacity="1"}>
                     <div style={{ width:24,height:24,borderRadius:"50%",background:e.color,display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontWeight:800,fontSize:11,flexShrink:0 }}>{e.name.charAt(0)}</div>
                     <span style={{ fontWeight:600,fontSize:12,flex:1 }}>{e.name}</span>
