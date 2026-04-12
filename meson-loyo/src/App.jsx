@@ -868,6 +868,17 @@ export default function App() {
           const trabajando=emps.filter(e=>!esLibre(shifts[e.id]?.[day]));
           const medC=trabajando.filter(e=>(shifts[e.id]?.[day]||[]).some(t=>t==="mediodia")).length;
           const nocC=trabajando.filter(e=>(shifts[e.id]?.[day]||[]).some(t=>t==="noche")).length;
+          // Ordenar: mañana > mañana+mediodía > mediodía > mediodía+noche > noche
+          function ordenTurno(arr){
+            const m=arr.includes("manana"), med=arr.includes("mediodia"), n=arr.includes("noche");
+            if(m&&!med&&!n) return 0;   // solo mañana
+            if(m&&med)      return 1;   // mañana + mediodía
+            if(med&&!n&&!m) return 2;   // solo mediodía
+            if(med&&n)      return 3;   // mediodía + noche
+            if(n&&!med&&!m) return 4;   // solo noche
+            return 5;
+          }
+          const trabajandoOrdenado=[...trabajando].sort((a,b)=>ordenTurno(shifts[a.id]?.[day]||[])-ordenTurno(shifts[b.id]?.[day]||[]));
           return (
             <div key={day} style={{ background:"#fff",borderRadius:14,overflow:"hidden",boxShadow:isToday?"0 0 0 2px #E07A5F,0 4px 16px rgba(0,0,0,.1)":"0 2px 10px rgba(0,0,0,.06)",border:isToday?"2px solid #E07A5F":"2px solid transparent" }}>
               <div style={{ padding:"10px 14px",background:isToday?"#E07A5F":isWe?"#1B2432":"#2a3244",color:"#fff",display:"flex",alignItems:"center",gap:8 }}>
@@ -889,7 +900,7 @@ export default function App() {
               </div>
               <div style={{ padding:"10px 12px",display:"flex",flexDirection:"column",gap:5,minHeight:50 }}>
                 {trabajando.length===0?<div style={{ color:"#ccc",fontSize:12,textAlign:"center",padding:"6px 0" }}>Sin asignar</div>
-                :trabajando.map(e=>{ const eArr=shifts[e.id]?.[day]||["libre"], eInfo=abrDia(eArr);
+                :trabajandoOrdenado.map(e=>{ const eArr=shifts[e.id]?.[day]||["libre"], eInfo=abrDia(eArr);
                   return <div key={e.id} onClick={()=>canEdit&&setModal({empId:e.id,day})} style={{ display:"flex",alignItems:"center",gap:7,cursor:canEdit?"pointer":"default",padding:"4px 7px",borderRadius:7,background:eInfo.bg }} onMouseEnter={x=>canEdit&&(x.currentTarget.style.opacity=".75")} onMouseLeave={x=>x.currentTarget.style.opacity="1"}>
                     <div style={{ width:24,height:24,borderRadius:"50%",background:e.color,display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontWeight:800,fontSize:11,flexShrink:0 }}>{e.name.charAt(0)}</div>
                     <span style={{ fontWeight:600,fontSize:12,flex:1 }}>{e.name}</span>
