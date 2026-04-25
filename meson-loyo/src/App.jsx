@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { db } from "./firebase";
 import { ref, onValue, set } from "firebase/database";
 
@@ -284,7 +284,7 @@ function VistaEmpleado({ user, emps, shifts, month, year, disponibilidad, onSave
               if(!trabajo) return null;
               const compas=emps.filter(e=>e.id!==emp.id&&!esLibre(shifts[e.id]?.[day]));
               return (
-                <div key={day} style={{ background:"#fff",borderRadius:14,overflow:"hidden",boxShadow:isToday?"0 0 0 2px #E07A5F,0 4px 16px rgba(0,0,0,.1)":"0 2px 10px rgba(0,0,0,.06)",border:isToday?"2px solid #E07A5F":"2px solid transparent" }}>
+                <div key={day} ref={isToday?todayRef:null} style={{ background:"#fff",borderRadius:14,overflow:"hidden",boxShadow:isToday?"0 0 0 2px #E07A5F,0 4px 16px rgba(0,0,0,.1)":"0 2px 10px rgba(0,0,0,.06)",border:isToday?"2px solid #E07A5F":"2px solid transparent" }}>
                   <div style={{ padding:"9px 14px",background:isToday?"#E07A5F":isWe?"#1B2432":"#2a3244",color:"#fff",display:"flex",alignItems:"center",gap:10 }}>
                     <span style={{ fontWeight:900,fontSize:17 }}>{day}</span>
                     <span style={{ fontSize:13,opacity:.8 }}>{DIAS[dow]}</span>
@@ -846,6 +846,15 @@ export default function App() {
   function imprimirDia(){ imprimirSemana(Array.from({length:dim},(_,i)=>i+1)); }
 
   function ViewDia(){
+    const todayRef = useRef(null);
+    useEffect(()=>{
+      const t = setTimeout(()=>{
+        if(todayRef.current){
+          todayRef.current.scrollIntoView({ behavior:"smooth", block:"start" });
+        }
+      }, 150);
+      return ()=>clearTimeout(t);
+    }, [month, year]);
     return (
       <div>
       <div style={{ display:"flex",alignItems:"center",gap:8,marginBottom:12,flexWrap:"wrap" }}>
@@ -880,7 +889,7 @@ export default function App() {
           }
           const trabajandoOrdenado=[...trabajando].sort((a,b)=>ordenTurno(shifts[a.id]?.[day]||[])-ordenTurno(shifts[b.id]?.[day]||[]));
           return (
-            <div key={day} style={{ background:"#fff",borderRadius:14,overflow:"hidden",boxShadow:isToday?"0 0 0 2px #E07A5F,0 4px 16px rgba(0,0,0,.1)":"0 2px 10px rgba(0,0,0,.06)",border:isToday?"2px solid #E07A5F":"2px solid transparent" }}>
+            <div key={day} ref={isToday?todayRef:null} style={{ background:"#fff",borderRadius:14,overflow:"hidden",boxShadow:isToday?"0 0 0 2px #E07A5F,0 4px 16px rgba(0,0,0,.1)":"0 2px 10px rgba(0,0,0,.06)",border:isToday?"2px solid #E07A5F":"2px solid transparent" }}>
               <div style={{ padding:"10px 14px",background:isToday?"#E07A5F":isWe?"#1B2432":"#2a3244",color:"#fff",display:"flex",alignItems:"center",gap:8 }}>
                 <span style={{ fontWeight:900,fontSize:18 }}>{day}</span>
                 <span style={{ fontSize:13,opacity:.8 }}>{DIAS[dow]}</span>
