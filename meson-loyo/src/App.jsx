@@ -1003,20 +1003,21 @@ export default function App() {
   function ViewHoras(){
     // Calcular estadísticas detalladas por empleado
     function statsEmp(empId){
-      let hTot=0, hMan=0, hMed=0, hNoc=0, hExtra=0;
+      let hTot=0, hMan=0, hMed=0, hNoc=0, hFinde=0, hFestivo=0;
       let dTot=0, dFinde=0, dFestivo=0, dLab=0;
       let dManana=0, dMediodia=0, dNoche=0;
       for(let d=1;d<=dim;d++){
         const arr=shifts[empId]?.[d]||["libre"];
         if(esLibre(arr)) continue;
         const dow=dowIndex(year,month,d);
-        const finde=dow>=5;
         const fest=esFestivo(d);
+        const finde=dow>=5&&!fest; // finde solo si NO es festivo
         const h=horasDia(arr);
         hTot+=h;
         dTot++;
-        if(finde||fest){ if(fest) dFestivo++; else dFinde++; hExtra+=h; }
-        else dLab++;
+        if(fest){ dFestivo++; hFestivo+=h; }
+        else if(finde){ dFinde++; hFinde+=h; }
+        else { dLab++; }
         arr.filter(t=>t!=="libre").forEach(t=>{
           if(t==="manana")        { hMan+=TURNOS.manana.horas;   dManana++; }
           else if(t==="mediodia") { hMed+=TURNOS.mediodia.horas; dMediodia++; }
@@ -1041,7 +1042,7 @@ export default function App() {
         const tipoDia=fest?"festivo":finde?"finde":"lab";
         arr.filter(t=>t!=="libre"&&TURNOS[t]).forEach(t=>{ salario+=getTar(t,tipoDia); });
       }
-      return {hTot,hMan,hMed,hNoc,hExtra,dTot,dFinde,dFestivo,dLab,dManana,dMediodia,dNoche,salario};
+      return {hTot,hMan,hMed,hNoc,hFinde,hFestivo,dTot,dFinde,dFestivo,dLab,dManana,dMediodia,dNoche,salario};
     }
 
     const statRow = (label,val,color,sub) => (
@@ -1093,7 +1094,7 @@ export default function App() {
       {/* Tarjetas por empleado */}
       <div style={{ display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(300px,1fr))",gap:14 }}>
         {emps.map(emp=>{
-          const {hTot,hMan,hMed,hNoc,hExtra,dTot,dFinde,dFestivo,dLab,dManana,dMediodia,dNoche,salario}=statsEmp(emp.id);
+          const {hTot,hMan,hMed,hNoc,hFinde,hFestivo,dTot,dFinde,dFestivo,dLab,dManana,dMediodia,dNoche,salario}=statsEmp(emp.id);
           const pct=Math.min(100,Math.round((hTot/130)*100));
           return <div key={emp.id} style={{ background:"#fff",borderRadius:18,padding:20,boxShadow:"0 2px 12px rgba(0,0,0,.06)" }}>
             {/* Cabecera */}
@@ -1132,12 +1133,12 @@ export default function App() {
             {/* Desglose por tipo de día */}
             <div style={{ background:"#F8F9FA",borderRadius:12,padding:"10px 14px" }}>
               <div style={{ fontSize:11,fontWeight:700,color:"#aaa",marginBottom:8,letterSpacing:.5 }}>DÍAS POR TIPO</div>
-              {statRow("📅 Laborables", dLab, "#2D6A4F", `(${parseFloat((hTot-hExtra).toFixed(1))}h)`)}
-              {statRow("📅 Fines de semana", dFinde, "#1565C0", `(${parseFloat(((hExtra/(dFinde+dFestivo)||0)*dFinde).toFixed(1))}h)`)}
-              {statRow("🔴 Festivos", dFestivo, "#C62828", `(${parseFloat(((hExtra/(dFinde+dFestivo)||0)*dFestivo).toFixed(1))}h)`)}
+              {statRow("📅 Laborables", dLab, "#2D6A4F", `(${parseFloat((hTot-hFinde-hFestivo).toFixed(1))}h)`)}
+              {statRow("📅 Fines de semana", dFinde, "#1565C0", `(${parseFloat(hFinde.toFixed(1))}h)`)}
+              {statRow("🔴 Festivos", dFestivo, "#C62828", `(${parseFloat(hFestivo.toFixed(1))}h)`)}
               {(dFinde>0||dFestivo>0)&&(
                 <div style={{ marginTop:8,padding:"6px 10px",background:"#FFF8E1",borderRadius:8,fontSize:12,fontWeight:700,color:"#E65100",display:"flex",justifyContent:"space-between" }}>
-                  <span>⚡ Horas fin sem. + festivos</span><span>{parseFloat(hExtra.toFixed(1))}h</span>
+                  <span>⚡ Horas fin sem. + festivos</span><span>{parseFloat((hFinde+hFestivo).toFixed(1))}h</span>
                 </div>
               )}
             </div>
