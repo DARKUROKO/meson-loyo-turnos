@@ -327,7 +327,7 @@ function VistaEmpleado({ user, emps, shifts, month, year, disponibilidad, onSave
 }
 
 /* ─── MODALES ────────────────────────────────────────────────────────────── */
-function ModalTurno({ emp, day, month, currentArr, onSave, onClose }) {
+function ModalTurno({ emp, day, month, currentArr, onSave, onClose, otrosNombre, onSaveOtrosNombre, esOtros }) {
   const [selected, setSelected] = useState(currentArr&&currentArr.length>0?currentArr.filter(t=>t!=="libre"):[]);
   function toggle(k) { if(k==="libre"){setSelected([]);return;} setSelected(prev=>prev.includes(k)?prev.filter(x=>x!==k):[...prev,k]); }
   function confirm() { onSave(selected.length===0?["libre"]:selected); }
@@ -1759,7 +1759,7 @@ export default function App() {
         {view==="disponibilidad" && <ViewDisponibilidad disponibilidad={disponibilidad}/>}
         {view==="empleados"  && <ViewEmpleados/>}
       </div>
-      {modal&&(()=>{ const emp=emps.find(e=>e.id===modal.empId); return <ModalTurno emp={emp} day={modal.day} month={month} currentArr={shifts[modal.empId]?.[modal.day]||["libre"]} onSave={arr=>saveShift(modal.empId,modal.day,arr)} onClose={()=>setModal(null)}/>; })()}
+      {modal&&(()=>{ const emp=emps.find(e=>e.id===modal.empId); const mk=mesKey(year,month); return <ModalTurno emp={emp} day={modal.day} month={month} currentArr={shifts[modal.empId]?.[modal.day]||["libre"]} onSave={arr=>saveShift(modal.empId,modal.day,arr)} onClose={()=>setModal(null)} esOtros={modal.empId===OTROS_ID} otrosNombre={otrosNombres?.[mk]?.[modal.day]||""} onSaveOtrosNombre={nombre=>saveOtrosNombre(mk,modal.day,nombre)}/>; })()}
       {cambioM&&<ModalCambio emps={emps} dim={dim} month={month} year={year} shifts={shifts} initialEmp1={cambioM.emp1Id} onConfirm={registrarCambio} onClose={()=>setCambioM(null)}/>}
       {delConf&&<div style={S.overlay} onClick={()=>setDelConf(null)}><div style={{ ...S.modal,maxWidth:330 }} onClick={e=>e.stopPropagation()}><div style={{ fontSize:42,textAlign:"center",marginBottom:12 }}>⚠️</div><div style={{ fontWeight:800,fontSize:17,textAlign:"center",marginBottom:8 }}>¿Eliminar empleado?</div><div style={{ color:"#aaa",fontSize:13,textAlign:"center",marginBottom:24 }}>No se puede deshacer.</div><div style={{ display:"flex",gap:10 }}><button onClick={()=>setDelConf(null)} style={{ flex:1,background:"#f0f0f0",border:"none",borderRadius:10,padding:12,cursor:"pointer",fontWeight:600 }}>Cancelar</button><button onClick={()=>deleteEmp(delConf)} style={{ flex:1,background:"#C62828",color:"#fff",border:"none",borderRadius:10,padding:12,cursor:"pointer",fontWeight:700 }}>Eliminar</button></div></div></div>}
       <style>{`@keyframes fadeIn{from{opacity:0;transform:translateY(-8px)}to{opacity:1;transform:translateY(0)}}*{box-sizing:border-box}button:active{transform:scale(.97)}`}</style>
