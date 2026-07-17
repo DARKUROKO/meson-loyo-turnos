@@ -14,6 +14,7 @@ const EMPLOYEES_INIT = [
   { id:8,  name:"Gonzalo", color:"#d63384" },
   { id:9,  name:"Alba",    color:"#FF6D00" },
   { id:10, name:"Aldara", color:"#00ACC1" },
+  { id:11, name:"Otros",  color:"#607D8B" },
 ];
 
 // ─── USUARIOS ─────────────────────────────────────────────────────────────────
@@ -552,7 +553,8 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const [tarifas, setTarifas] = useState({});
   const [disponibilidad, setDisponibilidad] = useState({});
-  const [reservas, setReservas] = useState([]); // { empId: { "YYYY_MM": { day: true/false } } } // { empId: { manana:{lab,finde,festivo}, mediodia:{...}, noche:{...} } }
+  const [reservas, setReservas] = useState([]);
+  const [otrosNombres, setOtrosNombres] = useState({}); // { empId: { "YYYY_MM": { day: true/false } } } // { empId: { manana:{lab,finde,festivo}, mediodia:{...}, noche:{...} } }
   const [festivos, setFestivos] = useState([]);  // array de strings "YYYY-MM-DD"
 
   // ── Cargar y escuchar cambios en Firebase en tiempo real ──────────────────
@@ -593,6 +595,10 @@ export default function App() {
       const data=snap.val();
       setFestivos(data?Object.values(data):[]);
     });
+    // Otros nombres
+    const otrosRef = ref(db, "otrosNombres");
+    const unsubOtros = onValue(otrosRef, snap=>{ setOtrosNombres(snap.val()||{}); });
+
     // Reservas
     const resRef = ref(db, "reservas");
     const unsubRes = onValue(resRef, snap=>{ const d=snap.val(); setReservas(d?Object.values(d):[]); });
@@ -607,7 +613,7 @@ export default function App() {
       const data=snap.val();
       setTarifas(data||{});
     });
-    return ()=>{ unsubShifts(); unsubCambios(); unsubFestivos(); unsubTarifas(); unsubDisp(); unsubRes(); };
+    return ()=>{ unsubShifts(); unsubCambios(); unsubFestivos(); unsubTarifas(); unsubDisp(); unsubRes(); unsubOtros(); };
   }, [year, month]);
 
   // ── Si es empleado → vista reducida ──────────────────────────────────────
@@ -647,6 +653,10 @@ export default function App() {
     setTarifas(newTar);
     set(ref(db,"tarifas"), newTar);
   }
+  function saveOtrosNombre(mk, day, nombre){
+    setOtrosNombres(prev=>({...prev,[mk]:{...(prev[mk]||{}),[day]:nombre}}));
+    set(ref(db,`otrosNombres/${mk}/${day}`), nombre||null);
+  }
   function saveReserva(r){
     set(ref(db,`reservas/${r.id}`), r);
   }
@@ -659,6 +669,8 @@ export default function App() {
   }
 
   function notify(msg,type="ok"){ setNotif({msg,type}); setTimeout(()=>setNotif(null),3000); }
+  const OTROS_ID = 11;
+  function otrosLabel(day){ const mk=mesKey(year,month); return otrosNombres?.[mk]?.[day]||"Otros"; }
 
   function goMonth(dir){
     let m=month+dir, y=year;
@@ -909,7 +921,7 @@ export default function App() {
               </div>
               <div style={{ padding:"10px 12px",display:"flex",flexDirection:"column",gap:5,minHeight:50 }}>
                 {trabajando.length===0?<div style={{ color:"#ccc",fontSize:12,textAlign:"center",padding:"6px 0" }}>Sin asignar</div>
-                :trabajandoOrdenado.map(e=>{ const eArr=shifts[e.id]?.[day]||["libre"], eInfo=abrDia(eArr);
+                :trabajandoOrdenado.map(e=>{ const eArr=shifts[e.id]?.[day]||["libre"], eInfo=abrDia(eArr); const empDisplay=e.id===OTROS_ID?otrosLabel(day):e.name;
                   return <div key={e.id} onClick={()=>canEdit&&setModal({empId:e.id,day})} style={{ display:"flex",alignItems:"center",gap:7,cursor:canEdit?"pointer":"default",padding:"4px 7px",borderRadius:7,background:eInfo.bg }} onMouseEnter={x=>canEdit&&(x.currentTarget.style.opacity=".75")} onMouseLeave={x=>x.currentTarget.style.opacity="1"}>
                     <div style={{ width:24,height:24,borderRadius:"50%",background:e.color,display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontWeight:800,fontSize:11,flexShrink:0 }}>{e.name.charAt(0)}</div>
                     <span style={{ fontWeight:600,fontSize:12,flex:1 }}>{e.name}</span>
