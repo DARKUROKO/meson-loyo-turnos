@@ -351,6 +351,17 @@ function ModalTurno({ emp, day, month, currentArr, onSave, onClose, otrosNombre,
           })}
         </div>
         {selected.length>1&&<div style={{ marginTop:12,background:"#EDE7F6",borderRadius:10,padding:"8px 14px",fontSize:13,color:"#4527A0",fontWeight:700 }}>🔀 Turno combinado · Total: {totalH}h</div>}
+        {esOtros&&(
+          <div style={{ marginTop:12,marginBottom:2 }}>
+            <label style={{ fontSize:12,fontWeight:700,color:"#888",display:"block",marginBottom:5 }}>¿Cómo se llama? (opcional)</label>
+            <input
+              value={otrosNombre||""}
+              onChange={e=>onSaveOtrosNombre(e.target.value)}
+              placeholder="Nombre del extra..."
+              style={{ width:"100%",border:"1.5px solid #9B5DE5",borderRadius:9,padding:"10px 12px",fontSize:14,outline:"none",fontFamily:"inherit",boxSizing:"border-box" }}
+            />
+          </div>
+        )}
         <div style={{ display:"flex",gap:10,marginTop:14 }}>
           <button onClick={onClose} style={{ flex:1,background:"#f0f0f0",border:"none",borderRadius:10,padding:10,cursor:"pointer",fontWeight:600,color:"#666" }}>Cancelar</button>
           <button onClick={confirm} style={{ flex:2,background:"#E07A5F",color:"#fff",border:"none",borderRadius:10,padding:10,cursor:"pointer",fontWeight:700,fontSize:14 }}>Guardar</button>
@@ -923,8 +934,8 @@ export default function App() {
                 {trabajando.length===0?<div style={{ color:"#ccc",fontSize:12,textAlign:"center",padding:"6px 0" }}>Sin asignar</div>
                 :trabajandoOrdenado.map(e=>{ const eArr=shifts[e.id]?.[day]||["libre"], eInfo=abrDia(eArr); const empDisplay=e.id===OTROS_ID?otrosLabel(day):e.name;
                   return <div key={e.id} onClick={()=>canEdit&&setModal({empId:e.id,day})} style={{ display:"flex",alignItems:"center",gap:7,cursor:canEdit?"pointer":"default",padding:"4px 7px",borderRadius:7,background:eInfo.bg }} onMouseEnter={x=>canEdit&&(x.currentTarget.style.opacity=".75")} onMouseLeave={x=>x.currentTarget.style.opacity="1"}>
-                    <div style={{ width:24,height:24,borderRadius:"50%",background:e.color,display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontWeight:800,fontSize:11,flexShrink:0 }}>{e.name.charAt(0)}</div>
-                    <span style={{ fontWeight:600,fontSize:12,flex:1 }}>{e.name}</span>
+                    <div style={{ width:24,height:24,borderRadius:"50%",background:e.color,display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontWeight:800,fontSize:11,flexShrink:0 }}>{empDisplay.charAt(0)}</div>
+                    <span style={{ fontWeight:600,fontSize:12,flex:1 }}>{empDisplay}</span>
                     <span style={{ fontSize:11,fontWeight:700,color:eInfo.color }}>{eInfo.emoji} {eArr.filter(t=>t!=="libre").map(t=>TURNOS[t]?.abr).join("+")}</span>
                   </div>; })}
                 {emps.filter(e=>esLibre(shifts[e.id]?.[day])).length>0&&(
@@ -1108,6 +1119,44 @@ export default function App() {
         {emps.map(emp=>{
           const {hTot,hMan,hMed,hNoc,hFinde,hFestivo,dTot,dFinde,dFestivo,dLab,dManana,dMediodia,dNoche,salario}=statsEmp(emp.id);
           const pct=Math.min(100,Math.round((hTot/130)*100));
+
+          // Para "Otros": mostrar desglose por nombre
+          if(emp.id===OTROS_ID){
+            const mk=mesKey(year,month);
+            const nombresDelMes={}; // { nombre: {dias,horas} }
+            for(let d=1;d<=dim;d++){
+              const arr=shifts[emp.id]?.[d]||["libre"];
+              if(esLibre(arr)) continue;
+              const nombre=otrosNombres?.[mk]?.[d]||"Sin nombre";
+              const h=horasDia(arr);
+              if(!nombresDelMes[nombre]) nombresDelMes[nombre]={dias:0,horas:0};
+              nombresDelMes[nombre].dias++;
+              nombresDelMes[nombre].horas+=h;
+            }
+            const nombresArr=Object.entries(nombresDelMes).sort((a,b)=>b[1].dias-a[1].dias);
+            return <div key={emp.id} style={{ background:"#fff",borderRadius:18,padding:20,boxShadow:"0 2px 12px rgba(0,0,0,.06)" }}>
+              <div style={{ display:"flex",alignItems:"center",gap:12,marginBottom:16 }}>
+                <div style={{ width:44,height:44,borderRadius:"50%",background:emp.color,display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontWeight:900,fontSize:19,flexShrink:0 }}>+</div>
+                <div><div style={{ fontWeight:800,fontSize:16 }}>Extras (Otros)</div><div style={{ fontSize:12,color:"#aaa" }}>{MESES[month]} {year} · {dTot} días · {parseFloat(hTot.toFixed(1))}h</div></div>
+              </div>
+              {nombresArr.length===0?(
+                <div style={{ fontSize:13,color:"#ccc",textAlign:"center",padding:"20px 0" }}>Sin extras registrados este mes</div>
+              ):(
+                <div style={{ display:"flex",flexDirection:"column",gap:8 }}>
+                  {nombresArr.map(([nombre,stats])=>(
+                    <div key={nombre} style={{ background:"#F8F9FA",borderRadius:11,padding:"10px 14px",display:"flex",alignItems:"center",gap:12 }}>
+                      <div style={{ width:36,height:36,borderRadius:"50%",background:emp.color,display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontWeight:800,fontSize:14,flexShrink:0 }}>{nombre.charAt(0).toUpperCase()}</div>
+                      <div style={{ flex:1 }}>
+                        <div style={{ fontWeight:700,fontSize:14 }}>{nombre}</div>
+                        <div style={{ fontSize:12,color:"#aaa",marginTop:2 }}>{stats.dias} día{stats.dias!==1?"s":""} · {parseFloat(stats.horas.toFixed(1))}h</div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>;
+          }
+
           return <div key={emp.id} style={{ background:"#fff",borderRadius:18,padding:20,boxShadow:"0 2px 12px rgba(0,0,0,.06)" }}>
             {/* Cabecera */}
             <div style={{ display:"flex",alignItems:"center",gap:12,marginBottom:16 }}>
