@@ -43,7 +43,7 @@ const TURNOS = {
 const TARIFAS_DEFAULT = {
   manana:   { lab:15,  finde:20,  festivo:25  },
   mediodia: { lab:50,  finde:65,  festivo:80  },
-  noche:    { lab:45,  finde:60,  festivo:75  },
+  noche:    { lab:45,  viernes:80, finde:60,  festivo:75  },
 };
 
 const DIAS  = ["Lun","Mar","Mié","Jue","Vie","Sáb","Dom"];
@@ -407,6 +407,78 @@ function ModalCambio({ emps, dim, month, year, shifts, initialEmp1, onConfirm, o
 }
 
 
+
+/* ─── WIDGET DE PROPINAS ──────────────────────────────────────────────────── */
+function PropinasWidget({ emps, statsEmp, mes, anio }) {
+  const [bolsa, setBolsa] = useState("");
+
+  // Calcular horas totales de todos (excluyendo Otros id=11)
+  const datos = emps
+    .filter(e => e.id !== 11)
+    .map(e => {
+      const s = statsEmp(e.id);
+      const horasPropina = parseFloat((s.hMed + s.hNoc).toFixed(1)); // excluir mañanas
+      return { emp: e, horas: horasPropina, dias: s.dTot };
+    })
+    .filter(d => d.horas > 0)
+    .sort((a, b) => b.horas - a.horas);
+
+  const totalHoras = datos.reduce((s, d) => s + d.horas, 0);
+  const bolsaNum = parseFloat(bolsa) || 0;
+
+  if (datos.length === 0) return null;
+
+  return (
+    <div style={{ background:"#fff",borderRadius:16,padding:20,marginBottom:24,boxShadow:"0 2px 12px rgba(0,0,0,.06)" }}>
+      <div style={{ fontWeight:800,fontSize:16,marginBottom:4 }}>🪙 Reparto de propinas — {mes} {anio}</div>
+      <div style={{ fontSize:13,color:"#888",marginBottom:18 }}>Porcentaje basado en horas de mediodía y noche (mañanas excluidas). Introduce la bolsa total para ver el reparto exacto.</div>
+
+      {/* Entrada bolsa */}
+      <div style={{ display:"flex",alignItems:"center",gap:10,marginBottom:20 }}>
+        <div style={{ flex:1,position:"relative" }}>
+          <input
+            type="number" min="0" step="0.01"
+            value={bolsa}
+            onChange={e=>setBolsa(e.target.value)}
+            placeholder="Total de propinas del mes..."
+            style={{ width:"100%",border:"1.5px solid #e0e0e0",borderRadius:10,padding:"10px 40px 10px 14px",fontSize:15,outline:"none",fontFamily:"inherit",boxSizing:"border-box" }}
+          />
+          <span style={{ position:"absolute",right:12,top:"50%",transform:"translateY(-50%)",color:"#aaa",fontWeight:700 }}>€</span>
+        </div>
+        {bolsaNum>0&&<div style={{ fontSize:13,color:"#2D6A4F",fontWeight:700,whiteSpace:"nowrap" }}>Total: {bolsaNum.toFixed(2)}€</div>}
+      </div>
+
+      {/* Barras por empleado */}
+      <div style={{ display:"flex",flexDirection:"column",gap:10 }}>
+        {datos.map(({emp, horas, dias})=>{
+          const pct = totalHoras > 0 ? (horas / totalHoras) * 100 : 0;
+          const cantidad = bolsaNum > 0 ? (pct / 100) * bolsaNum : null;
+          return (
+            <div key={emp.id}>
+              <div style={{ display:"flex",alignItems:"center",gap:10,marginBottom:4 }}>
+                <div style={{ width:28,height:28,borderRadius:"50%",background:emp.color,display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontWeight:800,fontSize:12,flexShrink:0 }}>{emp.name.charAt(0)}</div>
+                <div style={{ flex:1,fontWeight:700,fontSize:14 }}>{emp.name}</div>
+                <div style={{ fontSize:12,color:"#888" }}>{dias} días · {parseFloat(horas.toFixed(1))}h</div>
+                <div style={{ fontWeight:800,fontSize:15,color:emp.color,minWidth:48,textAlign:"right" }}>{pct.toFixed(1)}%</div>
+                {cantidad!==null&&<div style={{ fontWeight:900,fontSize:15,color:"#2D6A4F",minWidth:64,textAlign:"right" }}>{cantidad.toFixed(2)}€</div>}
+              </div>
+              <div style={{ background:"#f0f0f0",borderRadius:6,height:10,overflow:"hidden" }}>
+                <div style={{ width:`${pct}%`,height:"100%",background:emp.color,borderRadius:6,transition:"width .4s" }}/>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Total horas */}
+      <div style={{ marginTop:16,paddingTop:14,borderTop:"1px solid #f0f0f0",display:"flex",justifyContent:"space-between",fontSize:13,color:"#aaa" }}>
+        <span>Total horas del equipo este mes</span>
+        <span style={{ fontWeight:700,color:"#1B2432" }}>{parseFloat(totalHoras.toFixed(1))}h</span>
+      </div>
+    </div>
+  );
+}
+
 /* ─── CONFIGURADOR DE TARIFAS ────────────────────────────────────────────── */
 function TarifasConfig({ emps, tarifas, onSave }) {
   const [open, setOpen] = useState(false);
@@ -453,9 +525,10 @@ function TarifasConfig({ emps, tarifas, onSave }) {
     { key:"noche",    label:"🌙 Noche"    },
   ];
   const DIAS_TIPO = [
-    { key:"lab",     label:"Laborable" },
-    { key:"finde",   label:"Fin de semana" },
-    { key:"festivo", label:"Festivo" },
+    { key:"lab",     label:"Laborable",      turnos:["manana","mediodia","noche"] },
+    { key:"viernes", label:"Viernes noche",  turnos:["noche"] },
+    { key:"finde",   label:"Fin de semana",  turnos:["manana","mediodia","noche"] },
+    { key:"festivo", label:"Festivo",        turnos:["manana","mediodia","noche"] },
   ];
 
   const base = tarifas["base"] || TARIFAS_DEFAULT;
@@ -472,6 +545,7 @@ function TarifasConfig({ emps, tarifas, onSave }) {
             <tr style={{ background:"#F4F1EC" }}>
               <th style={{ padding:"8px 12px",textAlign:"left",fontWeight:700 }}>Turno</th>
               <th style={{ padding:"8px 12px",textAlign:"center",fontWeight:700 }}>📅 Laborable</th>
+              <th style={{ padding:"8px 12px",textAlign:"center",fontWeight:700,color:"#E65100" }}>🍊 Viernes noche</th>
               <th style={{ padding:"8px 12px",textAlign:"center",fontWeight:700 }}>📅 Fin semana</th>
               <th style={{ padding:"8px 12px",textAlign:"center",fontWeight:700 }}>🔴 Festivo</th>
             </tr>
@@ -480,9 +554,9 @@ function TarifasConfig({ emps, tarifas, onSave }) {
             {TIPOS.map(({key,label})=>(
               <tr key={key} style={{ borderBottom:"1px solid #f5f5f5" }}>
                 <td style={{ padding:"10px 12px",fontWeight:600 }}>{label}</td>
-                {["lab","finde","festivo"].map(d=>(
-                  <td key={d} style={{ padding:"10px 12px",textAlign:"center",fontWeight:700,color:"#2D6A4F" }}>
-                    {(base[key]?.[d]||0).toFixed(2)}€
+                {["lab","viernes","finde","festivo"].map(d=>(
+                  <td key={d} style={{ padding:"10px 12px",textAlign:"center",fontWeight:700,color:d==="viernes"?"#E65100":"#2D6A4F" }}>
+                    {key!=="noche"&&d==="viernes"?"—":(base[key]?.[d]||0).toFixed(2)+"€"}
                   </td>
                 ))}
               </tr>
@@ -519,7 +593,7 @@ function TarifasConfig({ emps, tarifas, onSave }) {
               <div key={key} style={{ marginBottom:18 }}>
                 <div style={{ fontWeight:700,fontSize:14,marginBottom:10 }}>{label}</div>
                 <div style={{ display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:10 }}>
-                  {DIAS_TIPO.map(({key:dk,label:dl})=>(
+                  {DIAS_TIPO.filter(({turnos})=>turnos.includes(key)).map(({key:dk,label:dl})=>(
                     <div key={dk}>
                       <label style={{ fontSize:11,fontWeight:700,color:"#888",display:"block",marginBottom:4 }}>{dl}</label>
                       <div style={{ display:"flex",alignItems:"center",gap:4 }}>
@@ -701,7 +775,8 @@ export default function App() {
     if(antLabel!==newLabel && mesCompleto){
       const emp=emps.find(e=>e.id===empId);
       const id=Date.now();
-      set(ref(db,`cambios/${id}`),{id,tipo:"auto",fecha:`${day}/${month+1}/${year}`,emp:emp?.name,de:antLabel,a:newLabel,por:user.nombre});
+      const ahora=new Date(id); const cuando=`${ahora.toLocaleDateString('es-ES')} ${ahora.toLocaleTimeString('es-ES',{hour:'2-digit',minute:'2-digit'})}`;
+      set(ref(db,`cambios/${id}`),{id,tipo:"auto",fecha:`${day}/${month+1}/${year}`,emp:emp?.name,de:antLabel,a:newLabel,por:user.nombre,cuando});
     }
     setModal(null); notify("✅ Turno guardado");
   }
@@ -1049,7 +1124,6 @@ export default function App() {
       }
       // Calcular salario estimado
       function getTar(tipo, tipoDia){
-        // Priority: employee override > customized base > hardcoded default
         const empTar=tarifas[empId]?.[tipo];
         const baseTar=tarifas["base"]?.[tipo];
         const defTar=TARIFAS_DEFAULT[tipo];
@@ -1061,9 +1135,13 @@ export default function App() {
         const arr=shifts[empId]?.[d]||["libre"];
         if(esLibre(arr)) continue;
         const dow=dowIndex(year,month,d);
-        const finde=dow>=5, fest=esFestivo(d);
-        const tipoDia=fest?"festivo":finde?"finde":"lab";
-        arr.filter(t=>t!=="libre"&&TURNOS[t]).forEach(t=>{ salario+=getTar(t,tipoDia); });
+        const fest=esFestivo(d);
+        const finde=dow>=5&&!fest;
+        const esViernes=dow===4&&!fest; // viernes no festivo
+        arr.filter(t=>t!=="libre"&&TURNOS[t]).forEach(t=>{
+          const tipoDia=fest?"festivo":finde?"finde":(esViernes&&t==="noche")?"viernes":"lab";
+          salario+=getTar(t,tipoDia);
+        });
       }
       return {hTot,hMan,hMed,hNoc,hFinde,hFestivo,dTot,dFinde,dFestivo,dLab,dManana,dMediodia,dNoche,salario};
     }
@@ -1112,6 +1190,10 @@ export default function App() {
       )}
 
       {/* Configuración de tarifas — solo admin */}
+
+      {/* ── Reparto de propinas ─────────────────────────────── */}
+      <PropinasWidget emps={emps} statsEmp={statsEmp} mes={MESES[month]} anio={year}/>
+
       {user.rol==="admin"&&<TarifasConfig emps={emps} tarifas={tarifas} onSave={saveTarifas}/>}
 
       {/* Tarjetas por empleado */}
@@ -1693,7 +1775,10 @@ export default function App() {
                   <span style={{ background:"#E07A5F22",borderRadius:5,padding:"1px 7px",color:"#E07A5F",fontWeight:700 }}>{c.a}</span>
                 </div>
               </div>
-              <div style={{ fontSize:11,color:"#ccc",whiteSpace:"nowrap" }}>por {c.por}</div>
+              <div style={{ textAlign:"right" }}>
+                <div style={{ fontSize:11,color:"#ccc",whiteSpace:"nowrap" }}>por {c.por}</div>
+                {c.cuando&&<div style={{ fontSize:10,color:"#ddd",marginTop:2 }}>🕐 {c.cuando}</div>}
+              </div>
             </div>
           ))}
         </div>
