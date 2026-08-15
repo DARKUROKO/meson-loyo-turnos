@@ -412,6 +412,7 @@ function ModalCambio({ emps, dim, month, year, shifts, initialEmp1, onConfirm, o
 function PropinasWidget({ emps, shifts, dim, statsEmp, mes, anio, mk, propinasMes, onSavePropinas }) {
   const bolsaGuardada = propinasMes?.[mk] ? String(propinasMes[mk]) : "";
   const [bolsa, setBolsa] = useState(bolsaGuardada);
+  useEffect(()=>{ setBolsa(propinasMes?.[mk] ? String(propinasMes[mk]) : ""); }, [mk, propinasMes]);
 
   // Calcular horas totales de todos (excluyendo Otros id=11)
   // Calcular horas de cocina: trabajan en todos los días con mediodía o noche
@@ -745,7 +746,8 @@ export default function App() {
 
   // ── Admin / Visor ─────────────────────────────────────────────────────────
   const canEdit    = user.rol !== "visor";
-  const canSeeHoras = user.usuario==="javier"||user.usuario==="jaime";
+  const canSeeHoras    = user.usuario==="javier"||user.usuario==="jaime"||user.usuario==="noelia";
+  const canSeeSalarios = user.usuario==="javier"||user.usuario==="jaime";
   const dim = daysInMonth(year,month);
   const fd  = firstDayOfMonth(year,month);
 
@@ -800,7 +802,7 @@ export default function App() {
     // Registrar cambio automático si el turno realmente cambió Y el mes está completo
     const antLabel=anterior.filter(t=>t!=="libre").map(t=>TURNOS[t]?.label).join("+")||"Libre";
     const newLabel=arr.filter(t=>t!=="libre").map(t=>TURNOS[t]?.label).join("+")||"Libre";
-    const mesCompleto=(()=>{ for(let d=1;d<=dim;d++){ if(emps.every(e=>esLibre(shifts[e.id]?.[d]))) return false; } return true; })();
+    const mesCompleto=(()=>{ const empsReales=emps.filter(e=>e.id!==OTROS_ID); for(let d=1;d<=dim;d++){ if(empsReales.every(e=>esLibre(shifts[e.id]?.[d]))) return false; } return true; })();
     if(antLabel!==newLabel && mesCompleto){
       const emp=emps.find(e=>e.id===empId);
       const id=Date.now();
@@ -842,6 +844,9 @@ export default function App() {
 
   function deleteEmp(id){
     setEmps(prev=>prev.filter(e=>e.id!==id));
+    // Limpiar turnos de Firebase para este mes
+    const mk=mesKey(year,month);
+    set(ref(db,`turnos/${mk}/${id}`), null);
     setDelConf(null); notify("🗑️ Empleado eliminado","warn");
   }
 
@@ -891,7 +896,7 @@ export default function App() {
 
       const grupos = {};
       trabajando.forEach(e=>{
-        (shifts[e.id][d]||["libre"]).filter(t=>t!=="libre").forEach(t=>{
+        (shifts[e.id]?.[d]||["libre"]).filter(t=>t!=="libre").forEach(t=>{
           if(!grupos[t]) grupos[t]=[];
           grupos[t].push(e.name);
         });
@@ -1223,7 +1228,7 @@ export default function App() {
       {/* ── Reparto de propinas ─────────────────────────────── */}
       <PropinasWidget emps={emps} shifts={shifts} dim={dim} statsEmp={statsEmp} mes={MESES[month]} anio={year} mk={mesKey(year,month)} propinasMes={propinasMes} onSavePropinas={savePropinas}/>
 
-      {user.rol==="admin"&&<TarifasConfig emps={emps} tarifas={tarifas} onSave={saveTarifas}/>}
+      {user.rol==="admin"&&canSeeSalarios&&<TarifasConfig emps={emps} tarifas={tarifas} onSave={saveTarifas}/>}
 
       {/* Tarjetas por empleado */}
       <div style={{ display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(300px,1fr))",gap:14 }}>
@@ -1287,11 +1292,11 @@ export default function App() {
               <div style={{ background:"#eee",borderRadius:6,height:8,overflow:"hidden" }}><div style={{ width:`${pct}%`,height:"100%",background:emp.color,borderRadius:6,transition:"width .5s" }}/></div>
             </div>
 
-            {/* Salario estimado */}
-            <div style={{ background:"#1B2432",borderRadius:12,padding:"12px 16px",marginBottom:12,display:"flex",justifyContent:"space-between",alignItems:"center" }}>
+            {/* Salario estimado — solo Javier y Jaime */}
+            {canSeeSalarios&&<div style={{ background:"#1B2432",borderRadius:12,padding:"12px 16px",marginBottom:12,display:"flex",justifyContent:"space-between",alignItems:"center" }}>
               <span style={{ fontSize:13,color:"#aaa",fontWeight:600 }}>💰 Salario estimado</span>
               <span style={{ fontSize:22,fontWeight:900,color:"#81B29A" }}>{salario.toFixed(2)}€</span>
-            </div>
+            </div>}
 
             {/* Desglose por tipo de turno */}
             <div style={{ background:"#F8F9FA",borderRadius:12,padding:"10px 14px",marginBottom:12 }}>
