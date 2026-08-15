@@ -409,7 +409,7 @@ function ModalCambio({ emps, dim, month, year, shifts, initialEmp1, onConfirm, o
 
 
 /* ─── WIDGET DE PROPINAS ──────────────────────────────────────────────────── */
-function PropinasWidget({ emps, statsEmp, mes, anio, mk, propinasMes, onSavePropinas }) {
+function PropinasWidget({ emps, shifts, dim, statsEmp, mes, anio, mk, propinasMes, onSavePropinas }) {
   const bolsaGuardada = propinasMes?.[mk] ? String(propinasMes[mk]) : "";
   const [bolsa, setBolsa] = useState(bolsaGuardada);
 
@@ -1221,7 +1221,7 @@ export default function App() {
       {/* Configuración de tarifas — solo admin */}
 
       {/* ── Reparto de propinas ─────────────────────────────── */}
-      <PropinasWidget emps={emps} statsEmp={statsEmp} mes={MESES[month]} anio={year} mk={mesKey(year,month)} propinasMes={propinasMes} onSavePropinas={savePropinas}/>
+      <PropinasWidget emps={emps} shifts={shifts} dim={dim} statsEmp={statsEmp} mes={MESES[month]} anio={year} mk={mesKey(year,month)} propinasMes={propinasMes} onSavePropinas={savePropinas}/>
 
       {user.rol==="admin"&&<TarifasConfig emps={emps} tarifas={tarifas} onSave={saveTarifas}/>}
 
