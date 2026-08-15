@@ -409,19 +409,36 @@ function ModalCambio({ emps, dim, month, year, shifts, initialEmp1, onConfirm, o
 
 
 /* ─── WIDGET DE PROPINAS ──────────────────────────────────────────────────── */
-function PropinasWidget({ emps, statsEmp, mes, anio }) {
-  const [bolsa, setBolsa] = useState("");
+function PropinasWidget({ emps, statsEmp, mes, anio, mk, propinasMes, onSavePropinas }) {
+  const bolsaGuardada = propinasMes?.[mk] ? String(propinasMes[mk]) : "";
+  const [bolsa, setBolsa] = useState(bolsaGuardada);
 
   // Calcular horas totales de todos (excluyendo Otros id=11)
-  const datos = emps
+  // Calcular horas de cocina: trabajan en todos los días con mediodía o noche
+  const horasCocina = (() => {
+    let h = 0;
+    for(let d = 1; d <= dim; d++){
+      const hayMed = emps.some(e => (shifts[e.id]?.[d]||["libre"]).includes("mediodia"));
+      const hayNoc = emps.some(e => (shifts[e.id]?.[d]||["libre"]).includes("noche"));
+      if(hayMed) h += 6.5;
+      if(hayNoc) h += 6;
+    }
+    return parseFloat(h.toFixed(1));
+  })();
+
+  const datosCamareros = emps
     .filter(e => e.id !== 11)
     .map(e => {
       const s = statsEmp(e.id);
-      const horasPropina = parseFloat((s.hMed + s.hNoc).toFixed(1)); // excluir mañanas
-      return { emp: e, horas: horasPropina, dias: s.dTot };
+      const horasPropina = parseFloat((s.hMed + s.hNoc).toFixed(1));
+      return { id: e.id, name: e.name, color: e.color, horas: horasPropina, dias: s.dTot, esCocina: false };
     })
-    .filter(d => d.horas > 0)
-    .sort((a, b) => b.horas - a.horas);
+    .filter(d => d.horas > 0);
+
+  const datos = [
+    ...datosCamareros,
+    ...(horasCocina > 0 ? [{ id:"cocina", name:"Cocina", color:"#5D4037", horas: horasCocina, dias: null, esCocina: true }] : [])
+  ].sort((a, b) => b.horas - a.horas);
 
   const totalHoras = datos.reduce((s, d) => s + d.horas, 0);
   const bolsaNum = parseFloat(bolsa) || 0;
@@ -439,26 +456,29 @@ function PropinasWidget({ emps, statsEmp, mes, anio }) {
           <input
             type="number" min="0" step="0.01"
             value={bolsa}
-            onChange={e=>setBolsa(e.target.value)}
+            onChange={e=>{ setBolsa(e.target.value); if(parseFloat(e.target.value)>0) onSavePropinas(mk, parseFloat(e.target.value)); else onSavePropinas(mk, null); }}
             placeholder="Total de propinas del mes..."
             style={{ width:"100%",border:"1.5px solid #e0e0e0",borderRadius:10,padding:"10px 40px 10px 14px",fontSize:15,outline:"none",fontFamily:"inherit",boxSizing:"border-box" }}
           />
           <span style={{ position:"absolute",right:12,top:"50%",transform:"translateY(-50%)",color:"#aaa",fontWeight:700 }}>€</span>
         </div>
-        {bolsaNum>0&&<div style={{ fontSize:13,color:"#2D6A4F",fontWeight:700,whiteSpace:"nowrap" }}>Total: {bolsaNum.toFixed(2)}€</div>}
+        {bolsaNum>0&&<div style={{ fontSize:13,color:"#2D6A4F",fontWeight:700,whiteSpace:"nowrap",display:"flex",alignItems:"center",gap:6 }}><span>✅</span><span>Guardado: {bolsaNum.toFixed(2)}€</span></div>}
       </div>
 
       {/* Barras por empleado */}
       <div style={{ display:"flex",flexDirection:"column",gap:10 }}>
-        {datos.map(({emp, horas, dias})=>{
-          const pct = totalHoras > 0 ? (horas / totalHoras) * 100 : 0;
+        {datos.map((emp)=>{
+          const pct = totalHoras > 0 ? (emp.horas / totalHoras) * 100 : 0;
           const cantidad = bolsaNum > 0 ? (pct / 100) * bolsaNum : null;
           return (
             <div key={emp.id}>
               <div style={{ display:"flex",alignItems:"center",gap:10,marginBottom:4 }}>
-                <div style={{ width:28,height:28,borderRadius:"50%",background:emp.color,display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontWeight:800,fontSize:12,flexShrink:0 }}>{emp.name.charAt(0)}</div>
-                <div style={{ flex:1,fontWeight:700,fontSize:14 }}>{emp.name}</div>
-                <div style={{ fontSize:12,color:"#888" }}>{dias} días · {parseFloat(horas.toFixed(1))}h</div>
+                <div style={{ width:28,height:28,borderRadius:"50%",background:emp.color,display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontWeight:800,fontSize:12,flexShrink:0 }}>{emp.esCocina?"🍳":emp.name.charAt(0)}</div>
+                <div style={{ flex:1 }}>
+                  <div style={{ fontWeight:700,fontSize:14 }}>{emp.name}{emp.esCocina&&<span style={{ fontSize:11,color:"#aaa",fontWeight:400,marginLeft:6 }}>todos los servicios</span>}</div>
+                  {!emp.esCocina&&<div style={{ fontSize:11,color:"#aaa" }}>{emp.dias} días</div>}
+                </div>
+                <div style={{ fontSize:12,color:"#888" }}>{parseFloat(emp.horas.toFixed(1))}h</div>
                 <div style={{ fontWeight:800,fontSize:15,color:emp.color,minWidth:48,textAlign:"right" }}>{pct.toFixed(1)}%</div>
                 {cantidad!==null&&<div style={{ fontWeight:900,fontSize:15,color:"#2D6A4F",minWidth:64,textAlign:"right" }}>{cantidad.toFixed(2)}€</div>}
               </div>
@@ -639,7 +659,8 @@ export default function App() {
   const [tarifas, setTarifas] = useState({});
   const [disponibilidad, setDisponibilidad] = useState({});
   const [reservas, setReservas] = useState([]);
-  const [otrosNombres, setOtrosNombres] = useState({}); // { empId: { "YYYY_MM": { day: true/false } } } // { empId: { manana:{lab,finde,festivo}, mediodia:{...}, noche:{...} } }
+  const [otrosNombres, setOtrosNombres] = useState({});
+  const [propinasMes, setPropinasMes] = useState({}); // { YYYY_MM: euros } // { empId: { "YYYY_MM": { day: true/false } } } // { empId: { manana:{lab,finde,festivo}, mediodia:{...}, noche:{...} } }
   const [festivos, setFestivos] = useState([]);  // array de strings "YYYY-MM-DD"
 
   // ── Cargar y escuchar cambios en Firebase en tiempo real ──────────────────
@@ -680,6 +701,10 @@ export default function App() {
       const data=snap.val();
       setFestivos(data?Object.values(data):[]);
     });
+    // Propinas por mes
+    const propRef = ref(db, "propinas");
+    const unsubProp = onValue(propRef, snap=>{ setPropinasMes(snap.val()||{}); });
+
     // Otros nombres
     const otrosRef = ref(db, "otrosNombres");
     const unsubOtros = onValue(otrosRef, snap=>{ setOtrosNombres(snap.val()||{}); });
@@ -698,7 +723,7 @@ export default function App() {
       const data=snap.val();
       setTarifas(data||{});
     });
-    return ()=>{ unsubShifts(); unsubCambios(); unsubFestivos(); unsubTarifas(); unsubDisp(); unsubRes(); unsubOtros(); };
+    return ()=>{ unsubShifts(); unsubCambios(); unsubFestivos(); unsubTarifas(); unsubDisp(); unsubRes(); unsubOtros(); unsubProp(); };
   }, [year, month]);
 
   // ── Si es empleado → vista reducida ──────────────────────────────────────
@@ -737,6 +762,10 @@ export default function App() {
   function saveTarifas(newTar){
     setTarifas(newTar);
     set(ref(db,"tarifas"), newTar);
+  }
+  function savePropinas(mk, euros){
+    setPropinasMes(prev=>({...prev,[mk]:euros}));
+    set(ref(db,`propinas/${mk}`), euros||null);
   }
   function saveOtrosNombre(mk, day, nombre){
     setOtrosNombres(prev=>({...prev,[mk]:{...(prev[mk]||{}),[day]:nombre}}));
@@ -1192,7 +1221,7 @@ export default function App() {
       {/* Configuración de tarifas — solo admin */}
 
       {/* ── Reparto de propinas ─────────────────────────────── */}
-      <PropinasWidget emps={emps} statsEmp={statsEmp} mes={MESES[month]} anio={year}/>
+      <PropinasWidget emps={emps} statsEmp={statsEmp} mes={MESES[month]} anio={year} mk={mesKey(year,month)} propinasMes={propinasMes} onSavePropinas={savePropinas}/>
 
       {user.rol==="admin"&&<TarifasConfig emps={emps} tarifas={tarifas} onSave={saveTarifas}/>}
 
