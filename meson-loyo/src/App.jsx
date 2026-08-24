@@ -747,7 +747,7 @@ export default function App() {
   // ── Admin / Visor ─────────────────────────────────────────────────────────
   const canEdit    = user.rol !== "visor";
   const canSeeHoras    = user.usuario==="javier"||user.usuario==="jaime"||user.usuario==="noelia";
-  const canSeeSalarios = user.usuario==="javier"||user.usuario==="jaime";
+  const canSeeSalarios = user.usuario==="javier"||user.usuario==="jaime"||user.usuario==="noelia";
   const dim = daysInMonth(year,month);
   const fd  = firstDayOfMonth(year,month);
 
