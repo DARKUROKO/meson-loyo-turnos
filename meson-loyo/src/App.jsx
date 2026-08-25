@@ -431,7 +431,7 @@ function PropinasWidget({ emps, shifts, dim, statsEmp, mes, anio, mk, propinasMe
     .filter(e => e.id !== 11)
     .map(e => {
       const s = statsEmp(e.id);
-      const horasPropina = parseFloat((s.hMed + s.hNoc).toFixed(1));
+      const horasPropina = parseFloat(s.hTot.toFixed(1));
       return { id: e.id, name: e.name, color: e.color, horas: horasPropina, dias: s.dTot, esCocina: false };
     })
     .filter(d => d.horas > 0);
@@ -449,7 +449,7 @@ function PropinasWidget({ emps, shifts, dim, statsEmp, mes, anio, mk, propinasMe
   return (
     <div style={{ background:"#fff",borderRadius:16,padding:20,marginBottom:24,boxShadow:"0 2px 12px rgba(0,0,0,.06)" }}>
       <div style={{ fontWeight:800,fontSize:16,marginBottom:4 }}>🪙 Reparto de propinas — {mes} {anio}</div>
-      <div style={{ fontSize:13,color:"#888",marginBottom:18 }}>Porcentaje basado en horas de mediodía y noche (mañanas excluidas). Introduce la bolsa total para ver el reparto exacto.</div>
+      <div style={{ fontSize:13,color:"#888",marginBottom:18 }}>Porcentaje basado en horas totales trabajadas. Introduce la bolsa total para ver el reparto exacto.</div>
 
       {/* Entrada bolsa */}
       <div style={{ display:"flex",alignItems:"center",gap:10,marginBottom:20 }}>
@@ -855,6 +855,7 @@ export default function App() {
     {id:"calendario",label:"📅 Calendario"},
     {id:"tabla",label:"📊 Tabla"},
     ...(canSeeHoras?[{id:"horas",label:"⏱️ Horas"}]:[]),
+    ...(canSeeSalarios?[{id:"stats",label:"📊 Estadísticas"}]:[]),
     {id:"cambios",label:"🔄 Cambios"},
     {id:"reservas",label:"📞 Reservas"},
     {id:"disponibilidad",label:"🗓️ Disponibilidad"},
@@ -1781,6 +1782,219 @@ export default function App() {
     );
   }
 
+
+  /* ─── VISTA ESTADÍSTICAS ─────────────────────────────────────────────── */
+  function ViewStats(){
+    const [historial, setHistorial] = useState(null); // { YYYY_MM: { empId: horas } }
+    const [cargando, setCargando] = useState(false);
+
+    // ── Cargar histórico de horas (últimos 6 meses) ────────────────────
+    async function cargarHistorico(){
+      setCargando(true);
+      const { get: fbGet } = await import("firebase/database");
+      const meses = [];
+      for(let i=5;i>=0;i--){
+        const d=new Date(year,month-i,1);
+        meses.push({
+          label:`${MESES[d.getMonth()].slice(0,3)} ${d.getFullYear()}`,
+          mk:`${d.getFullYear()}_${String(d.getMonth()+1).padStart(2,"0")}`
+        });
+      }
+      const resultado = {};
+      for(const {mk,label} of meses){
+        const snap = await fbGet(ref(db,`turnos/${mk}`));
+        const data = snap.val()||{};
+        resultado[mk] = { label };
+        emps.filter(e=>e.id!==OTROS_ID).forEach(e=>{
+          let h=0;
+          const empData=data[e.id]||{};
+          Object.values(empData).forEach(arr=>{
+            if(Array.isArray(arr)&&!arr.includes("libre")){
+              arr.forEach(t=>{ if(TURNOS[t]) h+=TURNOS[t].horas; });
+            }
+          });
+          resultado[mk][e.id]=parseFloat(h.toFixed(1));
+        });
+      }
+      setHistorial(resultado);
+      setCargando(false);
+    }
+
+    // ── Generar PDF resumen mensual ────────────────────────────────────
+    function generarPDF(){
+      const mesesStr=["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];
+      const mes=mesesStr[month], anio=year;
+
+      // Stats por empleado
+      const filas = emps.filter(e=>e.id!==OTROS_ID).map(e=>{
+        let hTot=0,hMed=0,hNoc=0,dTot=0,salario=0;
+        for(let d=1;d<=dim;d++){
+          const arr=shifts[e.id]?.[d]||["libre"];
+          if(arr.includes("libre")&&arr.length===1) continue;
+          const dow=dowIndex(year,month,d);
+          const fest=esFestivo(d), finde=dow>=5&&!fest, esV=dow===4&&!fest;
+          let h=0;
+          arr.filter(t=>t!=="libre"&&TURNOS[t]).forEach(t=>{
+            h+=TURNOS[t].horas;
+            if(t==="mediodia") hMed+=TURNOS[t].horas;
+            if(t==="noche") hNoc+=TURNOS[t].horas;
+            const empTar=tarifas[e.id]?.[t];
+            const baseTar=tarifas["base"]?.[t];
+            const defTar=TARIFAS_DEFAULT[t];
+            const tar=empTar||baseTar||defTar;
+            const td=fest?"festivo":finde?"finde":(esV&&t==="noche")?"viernes":"lab";
+            salario+=tar?.[td]||0;
+          });
+          hTot+=h; dTot++;
+        }
+        const horasProp=parseFloat(hTot.toFixed(1));
+        return { name:e.name, dTot, hTot:parseFloat(hTot.toFixed(1)), horasProp, salario:salario.toFixed(2), color:e.color };
+      }).filter(f=>f.dTot>0).sort((a,b)=>b.hTot-a.hTot);
+
+      const totalHProp=filas.reduce((s,f)=>s+f.horasProp,0);
+      const bolsa=propinasMes?.[mesKey(year,month)]||0;
+
+      const rows=filas.map(f=>{
+        const pct=totalHProp>0?((f.horasProp/totalHProp)*100).toFixed(1):0;
+        const prop=bolsa>0?((f.horasProp/totalHProp)*bolsa).toFixed(2):"-";
+        return `<tr>
+          <td style="padding:10px 14px;font-weight:700;display:flex;align-items:center;gap:8px">
+            <span style="display:inline-block;width:12px;height:12px;border-radius:50%;background:${f.color}"></span>${f.name}
+          </td>
+          <td style="padding:10px 14px;text-align:center">${f.dTot}</td>
+          <td style="padding:10px 14px;text-align:center">${f.hTot}h</td>
+          <td style="padding:10px 14px;text-align:center">${f.salario}€</td>
+          <td style="padding:10px 14px;text-align:center">${pct}%</td>
+          <td style="padding:10px 14px;text-align:center;font-weight:700;color:#2D6A4F">${prop=== "-"?"-":prop+"€"}</td>
+        </tr>`;
+      }).join("");
+
+      const html=`<!DOCTYPE html><html lang="es"><head><meta charset="UTF-8"/>
+        <title>Resumen ${mes} ${anio} — Mesón do Loyo</title>
+        <style>*{box-sizing:border-box;margin:0;padding:0}body{font-family:Arial,sans-serif;color:#1a1a1a}
+        @media print{body{-webkit-print-color-adjust:exact;print-color-adjust:exact}.no-print{display:none}}
+        .hdr{background:#1B2432;color:#fff;padding:20px 28px;display:flex;justify-content:space-between;align-items:center}
+        table{width:100%;border-collapse:collapse}th{background:#2a3244;color:#fff;padding:10px 14px;font-size:12px;text-align:left}
+        tr:nth-child(even){background:#f9f9f9}td{border-bottom:1px solid #eee;font-size:13px}
+        .badge{background:#E07A5F;border-radius:8px;padding:6px 14px;font-size:14px;font-weight:700}
+        </style></head><body>
+        <div class="hdr"><div><h1 style="font-size:20px;font-weight:800">🍽️ Mesón do Loyo — Paradela, Lugo</h1>
+        <p style="font-size:12px;color:#aaa;margin-top:3px">Resumen mensual de ${mes} ${anio}</p></div>
+        <div class="badge">${mes} ${anio}</div></div>
+        <div class="no-print" style="text-align:center;padding:14px">
+          <button onclick="window.print()" style="background:#E07A5F;color:#fff;border:none;border-radius:10px;padding:10px 28px;font-size:15px;font-weight:700;cursor:pointer">🖨️ Imprimir / Guardar PDF</button>
+        </div>
+        <table><thead><tr><th>Empleado</th><th style="text-align:center">Días</th><th style="text-align:center">Horas</th>
+        <th style="text-align:center">Salario est.</th><th style="text-align:center">% propinas</th><th style="text-align:center">Propinas${bolsa>0?" ("+bolsa+"€)":""}</th></tr></thead>
+        <tbody>${rows}</tbody></table>
+        ${bolsa>0?`<div style="padding:16px 28px;font-size:13px;color:#888">Bolsa de propinas registrada: <b>${bolsa}€</b></div>`:""}
+        <div style="padding:14px;text-align:center;font-size:11px;color:#aaa">Generado desde Mesón do Loyo · Gestión de Turnos</div>
+        </body></html>`;
+
+      const win=window.open("","_blank");
+      win.document.write(html);
+      win.document.close();
+    }
+
+    // ── Datos para gráfica de propinas ────────────────────────────────
+    const propEntries=Object.entries(propinasMes||{})
+      .sort(([a],[b])=>a>b?1:-1)
+      .map(([mk,v])=>{
+        const [y,m]=mk.split("_");
+        return { label:`${MESES[parseInt(m)-1].slice(0,3)} ${y}`, val:parseFloat(v)||0 };
+      });
+    const maxProp=propEntries.length>0?Math.max(...propEntries.map(p=>p.val)):0;
+
+    return (
+      <div>
+        <h3 style={{ margin:"0 0 20px",fontWeight:800,fontSize:19 }}>📊 Estadísticas</h3>
+
+        {/* ── PDF RESUMEN MENSUAL ── */}
+        <div style={{ background:"#fff",borderRadius:16,padding:20,marginBottom:20,boxShadow:"0 2px 12px rgba(0,0,0,.06)" }}>
+          <div style={{ fontWeight:800,fontSize:16,marginBottom:4 }}>📄 Resumen mensual</div>
+          <div style={{ fontSize:13,color:"#888",marginBottom:16 }}>Descarga un PDF con días, horas, salario estimado y propinas de {MESES[month]} {year}.</div>
+          <button onClick={generarPDF} style={{ background:"#1B2432",color:"#fff",border:"none",borderRadius:10,padding:"10px 20px",fontWeight:700,cursor:"pointer",fontSize:14 }}>
+            🖨️ Descargar resumen de {MESES[month]} {year}
+          </button>
+        </div>
+
+        {/* ── HISTÓRICO PROPINAS ── */}
+        <div style={{ background:"#fff",borderRadius:16,padding:20,marginBottom:20,boxShadow:"0 2px 12px rgba(0,0,0,.06)" }}>
+          <div style={{ fontWeight:800,fontSize:16,marginBottom:4 }}>🪙 Histórico de propinas</div>
+          <div style={{ fontSize:13,color:"#888",marginBottom:16 }}>Propinas registradas mes a mes.</div>
+          {propEntries.length===0?(
+            <div style={{ color:"#ccc",fontSize:13,textAlign:"center",padding:"24px 0" }}>Aún no hay propinas registradas</div>
+          ):(
+            <div>
+              <div style={{ display:"flex",alignItems:"flex-end",gap:8,height:160,marginBottom:8 }}>
+                {propEntries.map(({label,val})=>(
+                  <div key={label} style={{ flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:4 }}>
+                    <div style={{ fontSize:11,fontWeight:700,color:"#E07A5F" }}>{val>0?val+"€":""}</div>
+                    <div style={{ width:"100%",background:val>0?"#E07A5F":"#f0f0f0",borderRadius:"6px 6px 0 0",height:maxProp>0?`${Math.max(8,(val/maxProp)*120)}px`:"8px",transition:"height .3s" }}/>
+                  </div>
+                ))}
+              </div>
+              <div style={{ display:"flex",gap:8 }}>
+                {propEntries.map(({label})=>(
+                  <div key={label} style={{ flex:1,fontSize:10,color:"#aaa",textAlign:"center",fontWeight:600 }}>{label}</div>
+                ))}
+              </div>
+              <div style={{ marginTop:12,paddingTop:12,borderTop:"1px solid #f0f0f0",display:"flex",justifyContent:"space-between",fontSize:13 }}>
+                <span style={{ color:"#888" }}>Total acumulado</span>
+                <span style={{ fontWeight:700,color:"#E07A5F" }}>{propEntries.reduce((s,p)=>s+p.val,0).toFixed(2)}€</span>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* ── COMPARATIVA HORAS POR MES ── */}
+        <div style={{ background:"#fff",borderRadius:16,padding:20,boxShadow:"0 2px 12px rgba(0,0,0,.06)" }}>
+          <div style={{ fontWeight:800,fontSize:16,marginBottom:4 }}>📅 Comparativa de horas</div>
+          <div style={{ fontSize:13,color:"#888",marginBottom:16 }}>Horas trabajadas por cada camarero en los últimos 6 meses.</div>
+          {!historial?(
+            <button onClick={cargarHistorico} disabled={cargando} style={{ background:"#9B5DE5",color:"#fff",border:"none",borderRadius:10,padding:"10px 20px",fontWeight:700,cursor:"pointer",fontSize:14 }}>
+              {cargando?"⏳ Cargando...":"📥 Cargar datos históricos"}
+            </button>
+          ):(
+            <div style={{ overflowX:"auto" }}>
+              <table style={{ borderCollapse:"separate",borderSpacing:0,width:"100%",fontSize:13 }}>
+                <thead>
+                  <tr style={{ background:"#1B2432",color:"#fff" }}>
+                    <th style={{ padding:"10px 14px",textAlign:"left",position:"sticky",left:0,background:"#1B2432" }}>Empleado</th>
+                    {Object.values(historial).map(({label})=>(
+                      <th key={label} style={{ padding:"10px 14px",textAlign:"center",fontWeight:700 }}>{label}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {emps.filter(e=>e.id!==OTROS_ID).map((emp,ri)=>{
+                    const vals=Object.entries(historial).map(([mk,data])=>data[emp.id]||0);
+                    if(vals.every(v=>v===0)) return null;
+                    const maxV=Math.max(...vals);
+                    return (
+                      <tr key={emp.id} style={{ background:ri%2===0?"#fff":"#fafafa" }}>
+                        <td style={{ padding:"10px 14px",fontWeight:700,position:"sticky",left:0,background:ri%2===0?"#fff":"#fafafa",display:"flex",alignItems:"center",gap:8,boxShadow:"2px 0 6px rgba(0,0,0,.05)" }}>
+                          <div style={{ width:10,height:10,borderRadius:"50%",background:emp.color,flexShrink:0 }}/>
+                          {emp.name}
+                        </td>
+                        {vals.map((v,i)=>(
+                          <td key={i} style={{ padding:"10px 14px",textAlign:"center" }}>
+                            <div style={{ fontWeight:v===maxV?800:400,color:v===maxV?emp.color:"#555" }}>{v>0?v+"h":"—"}</div>
+                          </td>
+                        ))}
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+              <button onClick={()=>setHistorial(null)} style={{ marginTop:12,background:"#f0f0f0",border:"none",borderRadius:8,padding:"6px 14px",cursor:"pointer",fontWeight:600,color:"#666",fontSize:13 }}>✕ Cerrar</button>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
   function ViewCambios(){
     const autoLogs=[...cambios].filter(c=>c.tipo==="auto").reverse();
     const manuales=[...cambios].filter(c=>c.tipo!=="auto").reverse();
@@ -1922,6 +2136,7 @@ export default function App() {
         {view==="calendario" && <ViewCalendario/>}
         {view==="tabla"      && <ViewTabla/>}
         {view==="horas"      && canSeeHoras && <ViewHoras/>}
+        {view==="stats"      && canSeeSalarios && <ViewStats/>}
         {view==="cambios"    && <ViewCambios/>}
         {view==="reservas" && <ViewReservas/>}
         {view==="disponibilidad" && <ViewDisponibilidad disponibilidad={disponibilidad}/>}
