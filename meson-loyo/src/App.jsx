@@ -985,9 +985,9 @@ export default function App() {
         if(todayRef.current){
           todayRef.current.scrollIntoView({ behavior:"smooth", block:"start" });
         }
-      }, 150);
+      }, 200);
       return ()=>clearTimeout(t);
-    }, [month, year]);
+    }, []); // [] = solo al montar, no en re-renders
     return (
       <div>
       <div style={{ display:"flex",alignItems:"center",gap:8,marginBottom:12,flexWrap:"wrap" }}>
