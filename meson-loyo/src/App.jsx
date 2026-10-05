@@ -1254,9 +1254,6 @@ export default function App() {
 
       {/* Configuración de tarifas — solo admin */}
 
-      {/* ── Reparto de propinas ─────────────────────────────── */}
-      <PropinasWidget emps={emps} shifts={shifts} dim={dim} statsEmp={statsEmp} mes={MESES[month]} anio={year} mk={mesKey(year,month)} propinasMes={propinasMes} onSavePropinas={savePropinas} propinasMk={propinasMes?.[mesKey(year,month)]} onToggleEntregado={toggleEntregado}/>
-
       {user.rol==="admin"&&canSeeSalarios&&<TarifasConfig emps={emps} tarifas={tarifas} onSave={saveTarifas}/>}
 
       {/* Tarjetas por empleado */}
@@ -1814,15 +1811,16 @@ export default function App() {
   /* ─── VISTA ESTADÍSTICAS ─────────────────────────────────────────────── */
 
   function ViewPropinas(){
-    // Inline stats calculation (same logic as statsEmp in ViewHoras)
-    function calcHorasPropina(empId){
-      let h=0;
+    // Replica estadísticas básicas para PropinasWidget (statsEmp está dentro de ViewHoras)
+    function calcStats(empId){
+      let hTot=0, dTot=0;
       for(let d=1;d<=dim;d++){
         const arr=shifts[empId]?.[d]||["libre"];
-        if(arr.includes("libre")&&arr.length===1) continue;
-        arr.filter(t=>t!=="libre"&&TURNOS[t]).forEach(t=>{ h+=TURNOS[t].horas; });
+        if(esLibre(arr)) continue;
+        arr.filter(t=>t!=="libre"&&TURNOS[t]).forEach(t=>{ hTot+=TURNOS[t].horas; });
+        dTot++;
       }
-      return parseFloat(h.toFixed(1));
+      return { hTot:parseFloat(hTot.toFixed(1)), dTot };
     }
     return (
       <div>
@@ -1830,7 +1828,7 @@ export default function App() {
           <h3 style={{ margin:"0 0 4px",fontWeight:800,fontSize:19 }}>🪙 Propinas — {MESES[month]} {year}</h3>
           <p style={{ margin:0,color:"#aaa",fontSize:13 }}>Reparto proporcional según horas trabajadas. Marca a cada persona cuando le hayas entregado su parte.</p>
         </div>
-        <PropinasWidget emps={emps} shifts={shifts} dim={dim} statsEmp={calcHorasPropina} mes={MESES[month]} anio={year} mk={mesKey(year,month)} propinasMes={propinasMes} onSavePropinas={savePropinas} propinasMk={propinasMes?.[mesKey(year,month)]} onToggleEntregado={toggleEntregado}/>
+        <PropinasWidget emps={emps} shifts={shifts} dim={dim} statsEmp={calcStats} mes={MESES[month]} anio={year} mk={mesKey(year,month)} propinasMes={propinasMes} onSavePropinas={savePropinas} propinasMk={propinasMes?.[mesKey(year,month)]} onToggleEntregado={toggleEntregado}/>
       </div>
     );
   }
