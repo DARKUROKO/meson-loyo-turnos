@@ -473,20 +473,21 @@ function PropinasWidget({ emps, shifts, dim, statsEmp, mes, anio, mk, propinasMe
           const pct = totalHoras > 0 ? (emp.horas / totalHoras) * 100 : 0;
           const cantidad = bolsaNum > 0 ? (pct / 100) * bolsaNum : null;
           return (
-            <div key={emp.id}>
-              <div style={{ display:"flex",alignItems:"center",gap:10,marginBottom:4 }}>
-                <div style={{ width:28,height:28,borderRadius:"50%",background:emp.color,display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontWeight:800,fontSize:12,flexShrink:0 }}>{emp.esCocina?"🍳":emp.name.charAt(0)}</div>
+            <div key={emp.id} style={{ opacity:entregado[emp.id]?.ya?0.6:1,transition:"opacity .2s",background:entregado[emp.id]?.ya?"#F0FFF4":"transparent",borderRadius:12,padding:"10px 6px",marginBottom:4 }}>
+              <div style={{ display:"flex",alignItems:"center",gap:10,marginBottom:6 }}>
+                <div style={{ width:32,height:32,borderRadius:"50%",background:emp.color,display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontWeight:800,fontSize:13,flexShrink:0 }}>{emp.esCocina?"🍳":emp.name.charAt(0)}</div>
                 <div style={{ flex:1 }}>
-                  <div style={{ fontWeight:700,fontSize:14 }}>{emp.name}{emp.esCocina&&<span style={{ fontSize:11,color:"#aaa",fontWeight:400,marginLeft:6 }}>todos los servicios</span>}</div>
-                  {!emp.esCocina&&<div style={{ fontSize:11,color:"#aaa" }}>{emp.dias} días</div>}
+                  <div style={{ fontWeight:700,fontSize:15,textDecoration:entregado[emp.id]?.ya?"line-through":"none" }}>{emp.name}{emp.esCocina&&<span style={{ fontSize:11,color:"#aaa",fontWeight:400,marginLeft:6 }}>todos los servicios</span>}</div>
+                  <div style={{ fontSize:11,color:"#aaa" }}>{emp.esCocina?"":emp.dias+" días · "}{parseFloat(emp.horas.toFixed(1))}h · {pct.toFixed(1)}%{cantidad!==null?" · "+cantidad.toFixed(2)+"€":""}</div>
                 </div>
-                <div style={{ fontSize:12,color:"#888" }}>{parseFloat(emp.horas.toFixed(1))}h</div>
-                <div style={{ fontWeight:800,fontSize:15,color:emp.color,minWidth:48,textAlign:"right" }}>{pct.toFixed(1)}%</div>
-                {cantidad!==null&&<div style={{ fontWeight:900,fontSize:15,color:"#2D6A4F",minWidth:64,textAlign:"right" }}>{cantidad.toFixed(2)}€</div>}
               </div>
-              <div style={{ background:"#f0f0f0",borderRadius:6,height:10,overflow:"hidden" }}>
-                <div style={{ width:`${pct}%`,height:"100%",background:emp.color,borderRadius:6,transition:"width .4s" }}/>
+              <div style={{ background:"#f0f0f0",borderRadius:6,height:8,overflow:"hidden",marginBottom:8 }}>
+                <div style={{ width:`${pct}%`,height:"100%",background:entregado[emp.id]?.ya?"#2D6A4F":emp.color,borderRadius:6,transition:"all .4s" }}/>
               </div>
+              <button onClick={()=>onToggleEntregado(mk, String(emp.id))}
+                style={{ width:"100%",padding:"9px",borderRadius:9,border:`2px solid ${entregado[emp.id]?.ya?"#2D6A4F":"#e0e0e0"}`,background:entregado[emp.id]?.ya?"#2D6A4F":"#fff",color:entregado[emp.id]?.ya?"#fff":"#888",fontWeight:700,fontSize:14,cursor:"pointer",transition:"all .2s",fontFamily:"inherit" }}>
+                {entregado[emp.id]?.ya?"✅ Entregado  ·  pulsa para desmarcar":"☐  Marcar como entregado"}
+              </button>
             </div>
           );
         })}
@@ -881,6 +882,7 @@ export default function App() {
     {id:"calendario",label:"📅 Calendario"},
     {id:"tabla",label:"📊 Tabla"},
     ...(canSeeHoras?[{id:"horas",label:"⏱️ Horas"}]:[]),
+    ...(canSeeSalarios?[{id:"propinas",label:"🪙 Propinas"}]:[]),
     ...(canSeeSalarios?[{id:"stats",label:"📊 Estadísticas"}]:[]),
     {id:"cambios",label:"🔄 Cambios"},
     {id:"reservas",label:"📞 Reservas"},
@@ -1159,243 +1161,242 @@ export default function App() {
     </div>;
   }
 
-  function ViewHoras(){
-    // Calcular estadísticas detalladas por empleado
     function statsEmp(empId){
-      let hTot=0, hMan=0, hMed=0, hNoc=0, hFinde=0, hFestivo=0;
-      let dTot=0, dFinde=0, dFestivo=0, dLab=0;
-      let dManana=0, dMediodia=0, dNoche=0;
-      for(let d=1;d<=dim;d++){
-        const arr=shifts[empId]?.[d]||["libre"];
-        if(esLibre(arr)) continue;
-        const dow=dowIndex(year,month,d);
-        const fest=esFestivo(d);
-        const finde=dow>=5&&!fest; // finde solo si NO es festivo
-        const h=horasDia(arr);
-        hTot+=h;
-        dTot++;
-        if(fest){ dFestivo++; hFestivo+=h; }
-        else if(finde){ dFinde++; hFinde+=h; }
-        else { dLab++; }
-        arr.filter(t=>t!=="libre").forEach(t=>{
-          if(t==="manana")        { hMan+=TURNOS.manana.horas;   dManana++; }
-          else if(t==="mediodia") { hMed+=TURNOS.mediodia.horas; dMediodia++; }
-          else if(t==="noche")    { hNoc+=TURNOS.noche.horas;    dNoche++; }
-        });
-      }
-      // Calcular salario estimado
-      function getTar(tipo, tipoDia){
-        const empTar=tarifas[empId]?.[tipo];
-        const baseTar=tarifas["base"]?.[tipo];
-        const defTar=TARIFAS_DEFAULT[tipo];
-        const t=empTar||baseTar||defTar;
-        return t?.[tipoDia]||0;
-      }
-      let salario=0;
-      for(let d=1;d<=dim;d++){
-        const arr=shifts[empId]?.[d]||["libre"];
-        if(esLibre(arr)) continue;
-        const dow=dowIndex(year,month,d);
-        const fest=esFestivo(d);
-        const finde=dow>=5&&!fest;
-        const esViernes=dow===4&&!fest; // viernes no festivo
-        arr.filter(t=>t!=="libre"&&TURNOS[t]).forEach(t=>{
-          const tipoDia=fest?"festivo":finde?"finde":(esViernes&&t==="noche")?"viernes":"lab";
-          salario+=getTar(t,tipoDia);
-        });
-      }
-      return {hTot,hMan,hMed,hNoc,hFinde,hFestivo,dTot,dFinde,dFestivo,dLab,dManana,dMediodia,dNoche,salario};
+    let hTot=0, hMan=0, hMed=0, hNoc=0, hFinde=0, hFestivo=0;
+    let dTot=0, dFinde=0, dFestivo=0, dLab=0;
+    let dManana=0, dMediodia=0, dNoche=0;
+    for(let d=1;d<=dim;d++){
+      const arr=shifts[empId]?.[d]||["libre"];
+      if(esLibre(arr)) continue;
+      const dow=dowIndex(year,month,d);
+      const fest=esFestivo(d);
+      const finde=dow>=5&&!fest; // finde solo si NO es festivo
+      const h=horasDia(arr);
+      hTot+=h;
+      dTot++;
+      if(fest){ dFestivo++; hFestivo+=h; }
+      else if(finde){ dFinde++; hFinde+=h; }
+      else { dLab++; }
+      arr.filter(t=>t!=="libre").forEach(t=>{
+        if(t==="manana")        { hMan+=TURNOS.manana.horas;   dManana++; }
+        else if(t==="mediodia") { hMed+=TURNOS.mediodia.horas; dMediodia++; }
+        else if(t==="noche")    { hNoc+=TURNOS.noche.horas;    dNoche++; }
+      });
     }
+    // Calcular salario estimado
+    function getTar(tipo, tipoDia){
+      const empTar=tarifas[empId]?.[tipo];
+      const baseTar=tarifas["base"]?.[tipo];
+      const defTar=TARIFAS_DEFAULT[tipo];
+      const t=empTar||baseTar||defTar;
+      return t?.[tipoDia]||0;
+    }
+    let salario=0;
+    for(let d=1;d<=dim;d++){
+      const arr=shifts[empId]?.[d]||["libre"];
+      if(esLibre(arr)) continue;
+      const dow=dowIndex(year,month,d);
+      const fest=esFestivo(d);
+      const finde=dow>=5&&!fest;
+      const esViernes=dow===4&&!fest; // viernes no festivo
+      arr.filter(t=>t!=="libre"&&TURNOS[t]).forEach(t=>{
+        const tipoDia=fest?"festivo":finde?"finde":(esViernes&&t==="noche")?"viernes":"lab";
+        salario+=getTar(t,tipoDia);
+      });
+    }
+    return {hTot,hMan,hMed,hNoc,hFinde,hFestivo,dTot,dFinde,dFestivo,dLab,dManana,dMediodia,dNoche,salario};
+  }
 
-    const statRow = (label,val,color,sub) => (
-      <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:"7px 0",borderBottom:"1px solid #f5f5f5" }}>
-        <span style={{ fontSize:13,color:"#666" }}>{label}</span>
-        <span style={{ fontWeight:800,fontSize:14,color:color||"#1B2432" }}>{val}{sub&&<span style={{ fontSize:11,fontWeight:400,color:"#aaa",marginLeft:4 }}>{sub}</span>}</span>
-      </div>
-    );
+  const statRow = (label,val,color,sub) => (
+    <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:"7px 0",borderBottom:"1px solid #f5f5f5" }}>
+      <span style={{ fontSize:13,color:"#666" }}>{label}</span>
+      <span style={{ fontWeight:800,fontSize:14,color:color||"#1B2432" }}>{val}{sub&&<span style={{ fontSize:11,fontWeight:400,color:"#aaa",marginLeft:4 }}>{sub}</span>}</span>
+    </div>
+  );
 
-    return <div>
-      {/* Gestión de festivos — solo admin */}
-      {user.rol==="admin"&&(
-        <div style={{ background:"#fff",borderRadius:16,padding:20,marginBottom:24,boxShadow:"0 2px 12px rgba(0,0,0,.06)" }}>
-          <div style={{ fontWeight:800,fontSize:16,marginBottom:4 }}>📅 Festivos de {MESES[month]} {year}</div>
-          <div style={{ fontSize:13,color:"#888",marginBottom:14 }}>Pulsa los días festivos para marcarlos. Se reflejarán en las estadísticas de todos.</div>
-          <div style={{ display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:4,marginBottom:12 }}>
-            {DIAS.map(d=><div key={d} style={{ textAlign:"center",fontSize:10,fontWeight:700,color:"#bbb",padding:"4px 0" }}>{d}</div>)}
-            {Array.from({length:fd}).map((_,i)=><div key={`e${i}`}/>)}
-            {Array.from({length:dim}).map((_,i)=>{
-              const d=i+1, dow=dowIndex(year,month,d);
-              const fest=esFestivo(d), finde=dow>=5;
-              return <button key={d} onClick={()=>toggleFestivo(d)} style={{
-                padding:"6px 2px",textAlign:"center",borderRadius:8,border:"none",cursor:"pointer",
-                background:fest?"#C62828":finde?"#2a3244":"#f5f5f5",
-                color:fest?"#fff":finde?"#aaa":"#555",fontWeight:fest?800:400,fontSize:12,
-                outline:fest?"2px solid #C62828":"none"
-              }}>
-                {d}{fest&&<div style={{ fontSize:8,lineHeight:1 }}>fest</div>}
-              </button>;
+  return <div>
+    {/* Gestión de festivos — solo admin */}
+    {user.rol==="admin"&&(
+      <div style={{ background:"#fff",borderRadius:16,padding:20,marginBottom:24,boxShadow:"0 2px 12px rgba(0,0,0,.06)" }}>
+        <div style={{ fontWeight:800,fontSize:16,marginBottom:4 }}>📅 Festivos de {MESES[month]} {year}</div>
+        <div style={{ fontSize:13,color:"#888",marginBottom:14 }}>Pulsa los días festivos para marcarlos. Se reflejarán en las estadísticas de todos.</div>
+        <div style={{ display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:4,marginBottom:12 }}>
+          {DIAS.map(d=><div key={d} style={{ textAlign:"center",fontSize:10,fontWeight:700,color:"#bbb",padding:"4px 0" }}>{d}</div>)}
+          {Array.from({length:fd}).map((_,i)=><div key={`e${i}`}/>)}
+          {Array.from({length:dim}).map((_,i)=>{
+            const d=i+1, dow=dowIndex(year,month,d);
+            const fest=esFestivo(d), finde=dow>=5;
+            return <button key={d} onClick={()=>toggleFestivo(d)} style={{
+              padding:"6px 2px",textAlign:"center",borderRadius:8,border:"none",cursor:"pointer",
+              background:fest?"#C62828":finde?"#2a3244":"#f5f5f5",
+              color:fest?"#fff":finde?"#aaa":"#555",fontWeight:fest?800:400,fontSize:12,
+              outline:fest?"2px solid #C62828":"none"
+            }}>
+              {d}{fest&&<div style={{ fontSize:8,lineHeight:1 }}>fest</div>}
+            </button>;
+          })}
+        </div>
+        {festivos.filter(f=>f.startsWith(`${year}-${String(month+1).padStart(2,"0")}`)).length===0
+          ?<div style={{ fontSize:12,color:"#ccc" }}>Sin festivos marcados este mes</div>
+          :<div style={{ display:"flex",gap:6,flexWrap:"wrap" }}>
+            {festivos.filter(f=>f.startsWith(`${year}-${String(month+1).padStart(2,"0")}`)).sort().map(f=>{
+              const d=parseInt(f.split("-")[2]);
+              return <span key={f} style={{ background:"#FFEBEE",color:"#C62828",borderRadius:6,padding:"3px 10px",fontSize:12,fontWeight:700 }}>
+                Día {d} — {DIAS[dowIndex(year,month,d)]}
+              </span>;
             })}
           </div>
-          {festivos.filter(f=>f.startsWith(`${year}-${String(month+1).padStart(2,"0")}`)).length===0
-            ?<div style={{ fontSize:12,color:"#ccc" }}>Sin festivos marcados este mes</div>
-            :<div style={{ display:"flex",gap:6,flexWrap:"wrap" }}>
-              {festivos.filter(f=>f.startsWith(`${year}-${String(month+1).padStart(2,"0")}`)).sort().map(f=>{
-                const d=parseInt(f.split("-")[2]);
-                return <span key={f} style={{ background:"#FFEBEE",color:"#C62828",borderRadius:6,padding:"3px 10px",fontSize:12,fontWeight:700 }}>
-                  Día {d} — {DIAS[dowIndex(year,month,d)]}
-                </span>;
-              })}
-            </div>
-          }
-        </div>
-      )}
-
-      {/* Configuración de tarifas — solo admin */}
-
-      {/* ── Reparto de propinas ─────────────────────────────── */}
-      <PropinasWidget emps={emps} shifts={shifts} dim={dim} statsEmp={statsEmp} mes={MESES[month]} anio={year} mk={mesKey(year,month)} propinasMes={propinasMes} onSavePropinas={savePropinas} propinasMk={propinasMes?.[mesKey(year,month)]} onToggleEntregado={toggleEntregado}/>
-
-      {user.rol==="admin"&&canSeeSalarios&&<TarifasConfig emps={emps} tarifas={tarifas} onSave={saveTarifas}/>}
-
-      {/* Tarjetas por empleado */}
-      <div style={{ display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(300px,1fr))",gap:14 }}>
-        {emps.map(emp=>{
-          const {hTot,hMan,hMed,hNoc,hFinde,hFestivo,dTot,dFinde,dFestivo,dLab,dManana,dMediodia,dNoche,salario}=statsEmp(emp.id);
-          const pct=Math.min(100,Math.round((hTot/130)*100));
-
-          // Para "Otros": mostrar desglose por nombre
-          if(emp.id===OTROS_ID){
-            const mk=mesKey(year,month);
-            const nombresDelMes={}; // { nombre: {dias,horas} }
-            for(let d=1;d<=dim;d++){
-              const arr=shifts[emp.id]?.[d]||["libre"];
-              if(esLibre(arr)) continue;
-              const nombre=otrosNombres?.[mk]?.[d]||"Sin nombre";
-              const h=horasDia(arr);
-              if(!nombresDelMes[nombre]) nombresDelMes[nombre]={dias:0,horas:0};
-              nombresDelMes[nombre].dias++;
-              nombresDelMes[nombre].horas+=h;
-            }
-            const nombresArr=Object.entries(nombresDelMes).sort((a,b)=>b[1].dias-a[1].dias);
-            return <div key={emp.id} style={{ background:"#fff",borderRadius:18,padding:20,boxShadow:"0 2px 12px rgba(0,0,0,.06)" }}>
-              <div style={{ display:"flex",alignItems:"center",gap:12,marginBottom:16 }}>
-                <div style={{ width:44,height:44,borderRadius:"50%",background:emp.color,display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontWeight:900,fontSize:19,flexShrink:0 }}>+</div>
-                <div><div style={{ fontWeight:800,fontSize:16 }}>Extras (Otros)</div><div style={{ fontSize:12,color:"#aaa" }}>{MESES[month]} {year} · {dTot} días · {parseFloat(hTot.toFixed(1))}h</div></div>
-              </div>
-              {nombresArr.length===0?(
-                <div style={{ fontSize:13,color:"#ccc",textAlign:"center",padding:"20px 0" }}>Sin extras registrados este mes</div>
-              ):(
-                <div style={{ display:"flex",flexDirection:"column",gap:8 }}>
-                  {nombresArr.map(([nombre,stats])=>(
-                    <div key={nombre} style={{ background:"#F8F9FA",borderRadius:11,padding:"10px 14px",display:"flex",alignItems:"center",gap:12 }}>
-                      <div style={{ width:36,height:36,borderRadius:"50%",background:emp.color,display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontWeight:800,fontSize:14,flexShrink:0 }}>{nombre.charAt(0).toUpperCase()}</div>
-                      <div style={{ flex:1 }}>
-                        <div style={{ fontWeight:700,fontSize:14 }}>{nombre}</div>
-                        <div style={{ fontSize:12,color:"#aaa",marginTop:2 }}>{stats.dias} día{stats.dias!==1?"s":""} · {parseFloat(stats.horas.toFixed(1))}h</div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>;
-          }
-
-          return <div key={emp.id} style={{ background:"#fff",borderRadius:18,padding:20,boxShadow:"0 2px 12px rgba(0,0,0,.06)" }}>
-            {/* Cabecera */}
-            <div style={{ display:"flex",alignItems:"center",gap:12,marginBottom:16 }}>
-              <div style={{ width:44,height:44,borderRadius:"50%",background:emp.color,display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontWeight:900,fontSize:19,flexShrink:0 }}>{emp.name.charAt(0)}</div>
-              <div><div style={{ fontWeight:800,fontSize:16 }}>{emp.name}</div><div style={{ fontSize:12,color:"#aaa" }}>{MESES[month]} {year}</div></div>
-            </div>
-
-            {/* Totales grandes */}
-            <div style={{ display:"flex",gap:8,marginBottom:14 }}>
-              <div style={{ flex:1,background:"#F4F1EC",borderRadius:12,padding:"10px 8px",textAlign:"center" }}><div style={{ fontSize:26,fontWeight:900,color:"#E07A5F" }}>{parseFloat(hTot.toFixed(1))}</div><div style={{ fontSize:10,color:"#aaa",fontWeight:700 }}>HORAS TOT.</div></div>
-              <div style={{ flex:1,background:"#F4F1EC",borderRadius:12,padding:"10px 8px",textAlign:"center" }}><div style={{ fontSize:26,fontWeight:900,color:"#1B2432" }}>{dTot}</div><div style={{ fontSize:10,color:"#aaa",fontWeight:700 }}>DÍAS TOT.</div></div>
-            </div>
-
-            {/* Barra progreso */}
-            <div style={{ marginBottom:14 }}>
-              <div style={{ display:"flex",justifyContent:"space-between",marginBottom:4,fontSize:11 }}><span style={{ color:"#aaa" }}>Ref. 130h/mes</span><span style={{ fontWeight:700 }}>{pct}%</span></div>
-              <div style={{ background:"#eee",borderRadius:6,height:8,overflow:"hidden" }}><div style={{ width:`${pct}%`,height:"100%",background:emp.color,borderRadius:6,transition:"width .5s" }}/></div>
-            </div>
-
-            {/* Salario estimado — solo Javier y Jaime */}
-            {canSeeSalarios&&<div style={{ background:"#1B2432",borderRadius:12,padding:"12px 16px",marginBottom:12,display:"flex",justifyContent:"space-between",alignItems:"center" }}>
-              <span style={{ fontSize:13,color:"#aaa",fontWeight:600 }}>💰 Salario estimado</span>
-              <span style={{ fontSize:22,fontWeight:900,color:"#81B29A" }}>{salario.toFixed(2)}€</span>
-            </div>}
-
-            {/* Desglose por tipo de turno */}
-            <div style={{ background:"#F8F9FA",borderRadius:12,padding:"10px 14px",marginBottom:12 }}>
-              <div style={{ fontSize:11,fontWeight:700,color:"#aaa",marginBottom:8,letterSpacing:.5 }}>JORNADAS POR TURNO</div>
-              {statRow("🌅 Mañanas",   `${dManana} jornadas`, "#6A1B9A", `(${hMan}h)`)}
-              {statRow("☀️ Mediodía",  `${dMediodia} jornadas`, "#E65100", `(${hMed}h)`)}
-              {statRow("🌙 Noche",     `${dNoche} jornadas`, "#1565C0", `(${hNoc}h)`)}
-              {dManana===0&&dMediodia===0&&dNoche===0&&<div style={{ fontSize:12,color:"#ccc" }}>Sin jornadas registradas</div>}
-            </div>
-
-            {/* Desglose por tipo de día */}
-            <div style={{ background:"#F8F9FA",borderRadius:12,padding:"10px 14px" }}>
-              <div style={{ fontSize:11,fontWeight:700,color:"#aaa",marginBottom:8,letterSpacing:.5 }}>DÍAS POR TIPO</div>
-              {statRow("📅 Laborables", dLab, "#2D6A4F", `(${parseFloat((hTot-hFinde-hFestivo).toFixed(1))}h)`)}
-              {statRow("📅 Fines de semana", dFinde, "#1565C0", `(${parseFloat(hFinde.toFixed(1))}h)`)}
-              {statRow("🔴 Festivos", dFestivo, "#C62828", `(${parseFloat(hFestivo.toFixed(1))}h)`)}
-              {(dFinde>0||dFestivo>0)&&(
-                <div style={{ marginTop:8,padding:"6px 10px",background:"#FFF8E1",borderRadius:8,fontSize:12,fontWeight:700,color:"#E65100",display:"flex",justifyContent:"space-between" }}>
-                  <span>⚡ Horas fin sem. + festivos</span><span>{parseFloat((hFinde+hFestivo).toFixed(1))}h</span>
-                </div>
-              )}
-            </div>
-          </div>;
-        })}
+        }
       </div>
-    </div>;
+    )}
+
+    {/* Configuración de tarifas — solo admin */}
+
+    {user.rol==="admin"&&canSeeSalarios&&<TarifasConfig emps={emps} tarifas={tarifas} onSave={saveTarifas}/>}
+
+    {/* Tarjetas por empleado */}
+    <div style={{ display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(300px,1fr))",gap:14 }}>
+      {emps.map(emp=>{
+        const {hTot,hMan,hMed,hNoc,hFinde,hFestivo,dTot,dFinde,dFestivo,dLab,dManana,dMediodia,dNoche,salario}=statsEmp(emp.id);
+        const pct=Math.min(100,Math.round((hTot/130)*100));
+
+        // Para "Otros": mostrar desglose por nombre
+        if(emp.id===OTROS_ID){
+          const mk=mesKey(year,month);
+          const nombresDelMes={}; // { nombre: {dias,horas} }
+          for(let d=1;d<=dim;d++){
+            const arr=shifts[emp.id]?.[d]||["libre"];
+            if(esLibre(arr)) continue;
+            const nombre=otrosNombres?.[mk]?.[d]||"Sin nombre";
+            const h=horasDia(arr);
+            if(!nombresDelMes[nombre]) nombresDelMes[nombre]={dias:0,horas:0};
+            nombresDelMes[nombre].dias++;
+            nombresDelMes[nombre].horas+=h;
+          }
+          const nombresArr=Object.entries(nombresDelMes).sort((a,b)=>b[1].dias-a[1].dias);
+          return <div key={emp.id} style={{ background:"#fff",borderRadius:18,padding:20,boxShadow:"0 2px 12px rgba(0,0,0,.06)" }}>
+            <div style={{ display:"flex",alignItems:"center",gap:12,marginBottom:16 }}>
+              <div style={{ width:44,height:44,borderRadius:"50%",background:emp.color,display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontWeight:900,fontSize:19,flexShrink:0 }}>+</div>
+              <div><div style={{ fontWeight:800,fontSize:16 }}>Extras (Otros)</div><div style={{ fontSize:12,color:"#aaa" }}>{MESES[month]} {year} · {dTot} días · {parseFloat(hTot.toFixed(1))}h</div></div>
+            </div>
+            {nombresArr.length===0?(
+              <div style={{ fontSize:13,color:"#ccc",textAlign:"center",padding:"20px 0" }}>Sin extras registrados este mes</div>
+            ):(
+              <div style={{ display:"flex",flexDirection:"column",gap:8 }}>
+                {nombresArr.map(([nombre,stats])=>(
+                  <div key={nombre} style={{ background:"#F8F9FA",borderRadius:11,padding:"10px 14px",display:"flex",alignItems:"center",gap:12 }}>
+                    <div style={{ width:36,height:36,borderRadius:"50%",background:emp.color,display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontWeight:800,fontSize:14,flexShrink:0 }}>{nombre.charAt(0).toUpperCase()}</div>
+                    <div style={{ flex:1 }}>
+                      <div style={{ fontWeight:700,fontSize:14 }}>{nombre}</div>
+                      <div style={{ fontSize:12,color:"#aaa",marginTop:2 }}>{stats.dias} día{stats.dias!==1?"s":""} · {parseFloat(stats.horas.toFixed(1))}h</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>;
+        }
+
+        return <div key={emp.id} style={{ background:"#fff",borderRadius:18,padding:20,boxShadow:"0 2px 12px rgba(0,0,0,.06)" }}>
+          {/* Cabecera */}
+          <div style={{ display:"flex",alignItems:"center",gap:12,marginBottom:16 }}>
+            <div style={{ width:44,height:44,borderRadius:"50%",background:emp.color,display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontWeight:900,fontSize:19,flexShrink:0 }}>{emp.name.charAt(0)}</div>
+            <div><div style={{ fontWeight:800,fontSize:16 }}>{emp.name}</div><div style={{ fontSize:12,color:"#aaa" }}>{MESES[month]} {year}</div></div>
+          </div>
+
+          {/* Totales grandes */}
+          <div style={{ display:"flex",gap:8,marginBottom:14 }}>
+            <div style={{ flex:1,background:"#F4F1EC",borderRadius:12,padding:"10px 8px",textAlign:"center" }}><div style={{ fontSize:26,fontWeight:900,color:"#E07A5F" }}>{parseFloat(hTot.toFixed(1))}</div><div style={{ fontSize:10,color:"#aaa",fontWeight:700 }}>HORAS TOT.</div></div>
+            <div style={{ flex:1,background:"#F4F1EC",borderRadius:12,padding:"10px 8px",textAlign:"center" }}><div style={{ fontSize:26,fontWeight:900,color:"#1B2432" }}>{dTot}</div><div style={{ fontSize:10,color:"#aaa",fontWeight:700 }}>DÍAS TOT.</div></div>
+          </div>
+
+          {/* Barra progreso */}
+          <div style={{ marginBottom:14 }}>
+            <div style={{ display:"flex",justifyContent:"space-between",marginBottom:4,fontSize:11 }}><span style={{ color:"#aaa" }}>Ref. 130h/mes</span><span style={{ fontWeight:700 }}>{pct}%</span></div>
+            <div style={{ background:"#eee",borderRadius:6,height:8,overflow:"hidden" }}><div style={{ width:`${pct}%`,height:"100%",background:emp.color,borderRadius:6,transition:"width .5s" }}/></div>
+          </div>
+
+          {/* Salario estimado — solo Javier y Jaime */}
+          {canSeeSalarios&&<div style={{ background:"#1B2432",borderRadius:12,padding:"12px 16px",marginBottom:12,display:"flex",justifyContent:"space-between",alignItems:"center" }}>
+            <span style={{ fontSize:13,color:"#aaa",fontWeight:600 }}>💰 Salario estimado</span>
+            <span style={{ fontSize:22,fontWeight:900,color:"#81B29A" }}>{salario.toFixed(2)}€</span>
+          </div>}
+
+          {/* Desglose por tipo de turno */}
+          <div style={{ background:"#F8F9FA",borderRadius:12,padding:"10px 14px",marginBottom:12 }}>
+            <div style={{ fontSize:11,fontWeight:700,color:"#aaa",marginBottom:8,letterSpacing:.5 }}>JORNADAS POR TURNO</div>
+            {statRow("🌅 Mañanas",   `${dManana} jornadas`, "#6A1B9A", `(${hMan}h)`)}
+            {statRow("☀️ Mediodía",  `${dMediodia} jornadas`, "#E65100", `(${hMed}h)`)}
+            {statRow("🌙 Noche",     `${dNoche} jornadas`, "#1565C0", `(${hNoc}h)`)}
+            {dManana===0&&dMediodia===0&&dNoche===0&&<div style={{ fontSize:12,color:"#ccc" }}>Sin jornadas registradas</div>}
+          </div>
+
+          {/* Desglose por tipo de día */}
+          <div style={{ background:"#F8F9FA",borderRadius:12,padding:"10px 14px" }}>
+            <div style={{ fontSize:11,fontWeight:700,color:"#aaa",marginBottom:8,letterSpacing:.5 }}>DÍAS POR TIPO</div>
+            {statRow("📅 Laborables", dLab, "#2D6A4F", `(${parseFloat((hTot-hFinde-hFestivo).toFixed(1))}h)`)}
+            {statRow("📅 Fines de semana", dFinde, "#1565C0", `(${parseFloat(hFinde.toFixed(1))}h)`)}
+            {statRow("🔴 Festivos", dFestivo, "#C62828", `(${parseFloat(hFestivo.toFixed(1))}h)`)}
+            {(dFinde>0||dFestivo>0)&&(
+              <div style={{ marginTop:8,padding:"6px 10px",background:"#FFF8E1",borderRadius:8,fontSize:12,fontWeight:700,color:"#E65100",display:"flex",justifyContent:"space-between" }}>
+                <span>⚡ Horas fin sem. + festivos</span><span>{parseFloat((hFinde+hFestivo).toFixed(1))}h</span>
+              </div>
+            )}
+          </div>
+        </div>;
+      })}
+    </div>
+  </div>;
   }
 
 
 
   function ViewReservas(){
-    const [form, setForm] = useState(null); // null=cerrado, {}=nuevo, {id,...}=editar
-    const [filtroFecha, setFiltroFecha] = useState("");
-    const [delConf2, setDelConf2] = useState(null);
+  const [form, setForm] = useState(null); // null=cerrado, {}=nuevo, {id,...}=editar
+  const [filtroFecha, setFiltroFecha] = useState("");
+  const [delConf2, setDelConf2] = useState(null);
 
-    const hoy = `${year}-${String(month+1).padStart(2,"0")}`;
-    const HORAS = ["12:00","12:30","13:00","13:30","14:00","14:30","15:00","15:30","16:00","16:30","17:00","17:30","20:00","20:30","21:00","21:30","22:00","22:30","23:00","23:30"];
+  const hoy = `${year}-${String(month+1).padStart(2,"0")}`;
+  const HORAS = ["12:00","12:30","13:00","13:30","14:00","14:30","15:00","15:30","16:00","16:30","17:00","17:30","20:00","20:30","21:00","21:30","22:00","22:30","23:00","23:30"];
 
-    // Ordenar reservas por fecha y hora
-    const reservasOrdenadas = [...reservas].sort((a,b)=>{
-      if(a.fecha!==b.fecha) return a.fecha>b.fecha?1:-1;
-      return a.hora>b.hora?1:-1;
-    });
+  // Ordenar reservas por fecha y hora
+  const reservasOrdenadas = [...reservas].sort((a,b)=>{
+    if(a.fecha!==b.fecha) return a.fecha>b.fecha?1:-1;
+    return a.hora>b.hora?1:-1;
+  });
 
-    const reservasFiltradas = filtroFecha
-      ? reservasOrdenadas.filter(r=>r.fecha===filtroFecha)
-      : reservasOrdenadas.filter(r=>r.fecha>=`${year}-${String(month+1).padStart(2,"0")}-01`);
+  const reservasFiltradas = filtroFecha
+    ? reservasOrdenadas.filter(r=>r.fecha===filtroFecha)
+    : reservasOrdenadas.filter(r=>r.fecha>=`${year}-${String(month+1).padStart(2,"0")}-01`);
 
-    // Agrupar por fecha
-    const porFecha = {};
-    reservasFiltradas.forEach(r=>{ if(!porFecha[r.fecha]) porFecha[r.fecha]=[]; porFecha[r.fecha].push(r); });
+  // Agrupar por fecha
+  const porFecha = {};
+  reservasFiltradas.forEach(r=>{ if(!porFecha[r.fecha]) porFecha[r.fecha]=[]; porFecha[r.fecha].push(r); });
 
-    function abrirNueva(){
-      const hoyStr=`${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,"0")}-${String(today.getDate()).padStart(2,"0")}`;
-      setForm({ id:Date.now(), nombre:"", telefono:"", personas:2, fecha:hoyStr, hora:"13:00", notas:"" });
-    }
+  function abrirNueva(){
+    const hoyStr=`${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,"0")}-${String(today.getDate()).padStart(2,"0")}`;
+    setForm({ id:Date.now(), nombre:"", telefono:"", personas:2, fecha:hoyStr, hora:"13:00", notas:"" });
+  }
 
-    function guardar(){
-      if(!form.nombre.trim()||!form.fecha||!form.hora) return;
-      saveReserva({...form, nombre:form.nombre.trim(), telefono:form.telefono.trim()});
-      setForm(null); notify("✅ Reserva guardada");
-    }
+  function guardar(){
+    if(!form.nombre.trim()||!form.fecha||!form.hora) return;
+    saveReserva({...form, nombre:form.nombre.trim(), telefono:form.telefono.trim()});
+    setForm(null); notify("✅ Reserva guardada");
+  }
 
-    const inp = { width:"100%",border:"1.5px solid #e0e0e0",borderRadius:9,padding:"9px 12px",fontSize:14,outline:"none",fontFamily:"inherit",boxSizing:"border-box" };
-    const lbl = { fontSize:12,fontWeight:700,color:"#555",display:"block",marginBottom:4 };
+  const inp = { width:"100%",border:"1.5px solid #e0e0e0",borderRadius:9,padding:"9px 12px",fontSize:14,outline:"none",fontFamily:"inherit",boxSizing:"border-box" };
+  const lbl = { fontSize:12,fontWeight:700,color:"#555",display:"block",marginBottom:4 };
 
-    function formatFecha(f){
-      if(!f) return "";
-      const [y,m,d]=f.split("-");
-      const dow=dowIndex(parseInt(y),parseInt(m)-1,parseInt(d));
-      return `${DIAS[dow]} ${parseInt(d)} de ${MESES[parseInt(m)-1]}`;
-    }
+  function formatFecha(f){
+    if(!f) return "";
+    const [y,m,d]=f.split("-");
+    const dow=dowIndex(parseInt(y),parseInt(m)-1,parseInt(d));
+    return `${DIAS[dow]} ${parseInt(d)} de ${MESES[parseInt(m)-1]}`;
+  }
+
+  function ViewHoras(){
+    // Calcular estadísticas detalladas por empleado
+
 
     return (
       <div>
@@ -1810,6 +1811,19 @@ export default function App() {
 
 
   /* ─── VISTA ESTADÍSTICAS ─────────────────────────────────────────────── */
+
+  function ViewPropinas(){
+    return (
+      <div>
+        <div style={{ marginBottom:16 }}>
+          <h3 style={{ margin:"0 0 4px",fontWeight:800,fontSize:19 }}>🪙 Propinas — {MESES[month]} {year}</h3>
+          <p style={{ margin:0,color:"#aaa",fontSize:13 }}>Reparto proporcional según horas trabajadas. Marca a cada persona cuando le hayas entregado su parte.</p>
+        </div>
+        <PropinasWidget emps={emps} shifts={shifts} dim={dim} statsEmp={statsEmp} mes={MESES[month]} anio={year} mk={mesKey(year,month)} propinasMes={propinasMes} onSavePropinas={savePropinas} propinasMk={propinasMes?.[mesKey(year,month)]} onToggleEntregado={toggleEntregado}/>
+      </div>
+    );
+  }
+
   function ViewStats(){
     const [historial, setHistorial] = useState(null); // { YYYY_MM: { empId: horas } }
     const [cargando, setCargando] = useState(false);
@@ -2162,6 +2176,7 @@ export default function App() {
         {view==="calendario" && <ViewCalendario/>}
         {view==="tabla"      && <ViewTabla/>}
         {view==="horas"      && canSeeHoras && <ViewHoras/>}
+        {view==="propinas"   && canSeeSalarios && <ViewPropinas/>}
         {view==="stats"      && canSeeSalarios && <ViewStats/>}
         {view==="cambios"    && <ViewCambios/>}
         {view==="reservas" && <ViewReservas/>}
