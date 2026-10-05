@@ -15,6 +15,7 @@ const EMPLOYEES_INIT = [
   { id:9,  name:"Alba",    color:"#FF6D00" },
   { id:10, name:"Aldara", color:"#00ACC1" },
   { id:11, name:"Otros",  color:"#607D8B" },
+  { id:12, name:"Oscar",  color:"#F4A261" },
 ];
 
 // ─── USUARIOS ─────────────────────────────────────────────────────────────────
@@ -30,6 +31,7 @@ const USUARIOS = [
   { id:9,  nombre:"Gonzalo", usuario:"gonzalo", password:"gonzalo2024", rol:"empleado", empId:8  },
   { id:10, nombre:"Alba",    usuario:"alba",    password:"alba2024",    rol:"empleado", empId:9  },
   { id:11, nombre:"Aldara",  usuario:"aldara",  password:"aldara2024",  rol:"empleado", empId:10 },
+  { id:12, nombre:"Oscar",   usuario:"oscar",   password:"oscar2024",   rol:"empleado", empId:12 },
 ];
 
 const TURNOS = {
