@@ -409,10 +409,11 @@ function ModalCambio({ emps, dim, month, year, shifts, initialEmp1, onConfirm, o
 
 
 /* ─── WIDGET DE PROPINAS ──────────────────────────────────────────────────── */
-function PropinasWidget({ emps, shifts, dim, statsEmp, mes, anio, mk, propinasMes, onSavePropinas }) {
+function PropinasWidget({ emps, shifts, dim, statsEmp, mes, anio, mk, propinasMes, onSavePropinas, propinasMk, onToggleEntregado }) {
   const bolsaGuardada = propinasMes?.[mk] ? String(propinasMes[mk]) : "";
   const [bolsa, setBolsa] = useState(bolsaGuardada);
   useEffect(()=>{ setBolsa(propinasMes?.[mk] ? String(propinasMes[mk]) : ""); }, [mk, propinasMes]);
+  const entregado = propinasMk?.entregado || {}; // { empId: true }
 
   // Calcular horas totales de todos (excluyendo Otros id=11)
   // Calcular horas de cocina: trabajan en todos los días con mediodía o noche
@@ -491,10 +492,19 @@ function PropinasWidget({ emps, shifts, dim, statsEmp, mes, anio, mk, propinasMe
         })}
       </div>
 
-      {/* Total horas */}
-      <div style={{ marginTop:16,paddingTop:14,borderTop:"1px solid #f0f0f0",display:"flex",justifyContent:"space-between",fontSize:13,color:"#aaa" }}>
-        <span>Total horas del equipo este mes</span>
-        <span style={{ fontWeight:700,color:"#1B2432" }}>{parseFloat(totalHoras.toFixed(1))}h</span>
+      {/* Total horas + progreso entrega */}
+      <div style={{ marginTop:16,paddingTop:14,borderTop:"1px solid #f0f0f0" }}>
+        <div style={{ display:"flex",justifyContent:"space-between",fontSize:13,color:"#aaa",marginBottom:8 }}>
+          <span>Total horas del equipo este mes</span>
+          <span style={{ fontWeight:700,color:"#1B2432" }}>{parseFloat(totalHoras.toFixed(1))}h</span>
+        </div>
+        <div style={{ display:"flex",justifyContent:"space-between",fontSize:13,color:"#aaa" }}>
+          <span>Propinas entregadas</span>
+          <span style={{ fontWeight:700,color:Object.values(entregado).filter(v=>v?.ya).length===datos.length?"#2D6A4F":"#E07A5F" }}>
+            {Object.values(entregado).filter(v=>v?.ya).length} / {datos.length}
+            {Object.values(entregado).filter(v=>v?.ya).length===datos.length&&" ✅ Completo"}
+          </span>
+        </div>
       </div>
     </div>
   );
@@ -683,10 +693,22 @@ export default function App() {
         });
         setShifts(fixed);
       } else {
-        // Primer acceso a este mes: inicializar todo libre en Firebase
-        const init = genShiftsLibre(emps, year, month);
-        set(ref(db,`turnos/${mk}`), init);
-        setShifts(init);
+        // Solo inicializar si nunca hubo datos (no si Firebase devolvió null temporalmente)
+        // Usamos un flag para saber si ya se inicializó este mes
+        const metaRef = ref(db, `turnosMeta/${mk}/inicializado`);
+        import("firebase/database").then(({get})=>{
+          get(metaRef).then(metaSnap=>{
+            if(!metaSnap.val()){
+              // Primer acceso real: inicializar y marcar como inicializado
+              const init = genShiftsLibre(emps, year, month);
+              set(ref(db,`turnos/${mk}`), init);
+              set(metaRef, true);
+              setShifts(init);
+            }
+            // Si ya estaba inicializado, dejamos shifts vacío (Firebase tendrá los datos pronto)
+          });
+        });
+        setShifts({});
       }
       setLoading(false);
     });
@@ -768,6 +790,10 @@ export default function App() {
   function savePropinas(mk, euros){
     setPropinasMes(prev=>({...prev,[mk]:euros}));
     set(ref(db,`propinas/${mk}`), euros||null);
+  }
+  function toggleEntregado(mk, empId){
+    const cur=propinasMes?.[mk]?.entregado?.[empId]?.ya;
+    set(ref(db,`propinas/${mk}/entregado/${empId}/ya`), !cur);
   }
   function saveOtrosNombre(mk, day, nombre){
     setOtrosNombres(prev=>({...prev,[mk]:{...(prev[mk]||{}),[day]:nombre}}));
@@ -1227,7 +1253,7 @@ export default function App() {
       {/* Configuración de tarifas — solo admin */}
 
       {/* ── Reparto de propinas ─────────────────────────────── */}
-      <PropinasWidget emps={emps} shifts={shifts} dim={dim} statsEmp={statsEmp} mes={MESES[month]} anio={year} mk={mesKey(year,month)} propinasMes={propinasMes} onSavePropinas={savePropinas}/>
+      <PropinasWidget emps={emps} shifts={shifts} dim={dim} statsEmp={statsEmp} mes={MESES[month]} anio={year} mk={mesKey(year,month)} propinasMes={propinasMes} onSavePropinas={savePropinas} propinasMk={propinasMes?.[mesKey(year,month)]} onToggleEntregado={toggleEntregado}/>
 
       {user.rol==="admin"&&canSeeSalarios&&<TarifasConfig emps={emps} tarifas={tarifas} onSave={saveTarifas}/>}
 
