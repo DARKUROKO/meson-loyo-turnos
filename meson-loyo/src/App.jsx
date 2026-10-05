@@ -135,7 +135,7 @@ function VistaEmpleado({ user, emps, shifts, month, year, disponibilidad, onSave
 
   return (
     <div style={{ fontFamily:"'DM Sans','Segoe UI',sans-serif",minHeight:"100vh",background:"#F4F1EC" }}>
-      <div style={{ background:"#1B2432",color:"#fff" }}>
+      <div style={{ background:"#1B2432",color:"#fff",position:"sticky",top:0,zIndex:100,boxShadow:"0 2px 12px rgba(0,0,0,.3)" }}>
         <div style={{ maxWidth:700,margin:"0 auto",padding:"0 16px",display:"flex",alignItems:"center",height:58,gap:12 }}>
           <div style={{ width:36,height:36,borderRadius:"50%",background:emp.color,display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontWeight:900,fontSize:16,flexShrink:0 }}>{emp.name.charAt(0)}</div>
           <div style={{ flex:1 }}>
@@ -2140,7 +2140,7 @@ export default function App() {
   return (
     <div style={{ fontFamily:"'DM Sans','Segoe UI',sans-serif",minHeight:"100vh",background:"#F4F1EC",color:"#1a1a1a" }}>
       {notif&&<div style={{ position:"fixed",top:20,right:20,zIndex:9999,background:notif.type==="warn"?"#E65100":"#2D6A4F",color:"#fff",padding:"12px 20px",borderRadius:10,fontWeight:600,fontSize:14,boxShadow:"0 4px 20px rgba(0,0,0,.2)",animation:"fadeIn .3s ease" }}>{notif.msg}</div>}
-      <div style={{ background:"#1B2432",color:"#fff" }}>
+      <div style={{ background:"#1B2432",color:"#fff",position:"sticky",top:0,zIndex:100,boxShadow:"0 2px 12px rgba(0,0,0,.3)" }}>
         <div style={{ maxWidth:1400,margin:"0 auto",padding:"0 20px",display:"flex",alignItems:"center",gap:14,height:58 }}>
           <div style={{ display:"flex",alignItems:"center",gap:10,flexShrink:0 }}>
             <div style={{ background:"#E07A5F",borderRadius:10,width:34,height:34,display:"flex",alignItems:"center",justifyContent:"center",fontSize:17 }}>🍽️</div>
