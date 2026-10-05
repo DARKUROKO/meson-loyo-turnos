@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { db } from "./firebase";
 import { ref, onValue, set } from "firebase/database";
 
@@ -11,7 +11,10 @@ const EMPLOYEES_INIT = [
   { id:5, name:"Maikel",  color:"#b08800" },
   { id:6, name:"Sergio",  color:"#E65100" },
   { id:7, name:"Nilo",    color:"#00897B" },
-  { id:8, name:"Gonzalo", color:"#d63384" },
+  { id:8,  name:"Gonzalo", color:"#d63384" },
+  { id:9,  name:"Alba",    color:"#FF6D00" },
+  { id:10, name:"Aldara", color:"#00ACC1" },
+  { id:11, name:"Otros",  color:"#607D8B" },
 ];
 
 // ─── USUARIOS ─────────────────────────────────────────────────────────────────
@@ -24,7 +27,9 @@ const USUARIOS = [
   { id:6, nombre:"Maikel",  usuario:"maikel",  password:"maikel2024",  rol:"empleado", empId:5 },
   { id:7, nombre:"Sergio",  usuario:"sergio",  password:"sergio2024",  rol:"empleado", empId:6 },
   { id:8, nombre:"Nilo",    usuario:"nilo",    password:"nilo2024",    rol:"empleado", empId:7 },
-  { id:9, nombre:"Gonzalo", usuario:"gonzalo", password:"gonzalo2024", rol:"empleado", empId:8 },
+  { id:9,  nombre:"Gonzalo", usuario:"gonzalo", password:"gonzalo2024", rol:"empleado", empId:8  },
+  { id:10, nombre:"Alba",    usuario:"alba",    password:"alba2024",    rol:"empleado", empId:9  },
+  { id:11, nombre:"Aldara",  usuario:"aldara",  password:"aldara2024",  rol:"empleado", empId:10 },
 ];
 
 const TURNOS = {
@@ -38,7 +43,7 @@ const TURNOS = {
 const TARIFAS_DEFAULT = {
   manana:   { lab:15,  finde:20,  festivo:25  },
   mediodia: { lab:50,  finde:65,  festivo:80  },
-  noche:    { lab:45,  finde:60,  festivo:75  },
+  noche:    { lab:45,  viernes:80, finde:60,  festivo:75  },
 };
 
 const DIAS  = ["Lun","Mar","Mié","Jue","Vie","Sáb","Dom"];
@@ -280,7 +285,7 @@ function VistaEmpleado({ user, emps, shifts, month, year, disponibilidad, onSave
               if(!trabajo) return null;
               const compas=emps.filter(e=>e.id!==emp.id&&!esLibre(shifts[e.id]?.[day]));
               return (
-                <div key={day} style={{ background:"#fff",borderRadius:14,overflow:"hidden",boxShadow:isToday?"0 0 0 2px #E07A5F,0 4px 16px rgba(0,0,0,.1)":"0 2px 10px rgba(0,0,0,.06)",border:isToday?"2px solid #E07A5F":"2px solid transparent" }}>
+                <div key={day} ref={isToday?todayRef:null} style={{ background:"#fff",borderRadius:14,overflow:"hidden",boxShadow:isToday?"0 0 0 2px #E07A5F,0 4px 16px rgba(0,0,0,.1)":"0 2px 10px rgba(0,0,0,.06)",border:isToday?"2px solid #E07A5F":"2px solid transparent" }}>
                   <div style={{ padding:"9px 14px",background:isToday?"#E07A5F":isWe?"#1B2432":"#2a3244",color:"#fff",display:"flex",alignItems:"center",gap:10 }}>
                     <span style={{ fontWeight:900,fontSize:17 }}>{day}</span>
                     <span style={{ fontSize:13,opacity:.8 }}>{DIAS[dow]}</span>
@@ -322,7 +327,7 @@ function VistaEmpleado({ user, emps, shifts, month, year, disponibilidad, onSave
 }
 
 /* ─── MODALES ────────────────────────────────────────────────────────────── */
-function ModalTurno({ emp, day, month, currentArr, onSave, onClose }) {
+function ModalTurno({ emp, day, month, currentArr, onSave, onClose, otrosNombre, onSaveOtrosNombre, esOtros }) {
   const [selected, setSelected] = useState(currentArr&&currentArr.length>0?currentArr.filter(t=>t!=="libre"):[]);
   function toggle(k) { if(k==="libre"){setSelected([]);return;} setSelected(prev=>prev.includes(k)?prev.filter(x=>x!==k):[...prev,k]); }
   function confirm() { onSave(selected.length===0?["libre"]:selected); }
@@ -346,6 +351,17 @@ function ModalTurno({ emp, day, month, currentArr, onSave, onClose }) {
           })}
         </div>
         {selected.length>1&&<div style={{ marginTop:12,background:"#EDE7F6",borderRadius:10,padding:"8px 14px",fontSize:13,color:"#4527A0",fontWeight:700 }}>🔀 Turno combinado · Total: {totalH}h</div>}
+        {esOtros&&(
+          <div style={{ marginTop:12,marginBottom:2 }}>
+            <label style={{ fontSize:12,fontWeight:700,color:"#888",display:"block",marginBottom:5 }}>¿Cómo se llama? (opcional)</label>
+            <input
+              value={otrosNombre||""}
+              onChange={e=>onSaveOtrosNombre(e.target.value)}
+              placeholder="Nombre del extra..."
+              style={{ width:"100%",border:"1.5px solid #9B5DE5",borderRadius:9,padding:"10px 12px",fontSize:14,outline:"none",fontFamily:"inherit",boxSizing:"border-box" }}
+            />
+          </div>
+        )}
         <div style={{ display:"flex",gap:10,marginTop:14 }}>
           <button onClick={onClose} style={{ flex:1,background:"#f0f0f0",border:"none",borderRadius:10,padding:10,cursor:"pointer",fontWeight:600,color:"#666" }}>Cancelar</button>
           <button onClick={confirm} style={{ flex:2,background:"#E07A5F",color:"#fff",border:"none",borderRadius:10,padding:10,cursor:"pointer",fontWeight:700,fontSize:14 }}>Guardar</button>
@@ -390,6 +406,109 @@ function ModalCambio({ emps, dim, month, year, shifts, initialEmp1, onConfirm, o
   );
 }
 
+
+
+/* ─── WIDGET DE PROPINAS ──────────────────────────────────────────────────── */
+function PropinasWidget({ emps, shifts, dim, statsEmp, mes, anio, mk, propinasMes, onSavePropinas, propinasMk, onToggleEntregado }) {
+  const bolsaGuardada = propinasMes?.[mk] ? String(propinasMes[mk]) : "";
+  const [bolsa, setBolsa] = useState(bolsaGuardada);
+  useEffect(()=>{ setBolsa(propinasMes?.[mk] ? String(propinasMes[mk]) : ""); }, [mk, propinasMes]);
+  const entregado = propinasMk?.entregado || {}; // { empId: true }
+
+  // Calcular horas totales de todos (excluyendo Otros id=11)
+  // Calcular horas de cocina: trabajan en todos los días con mediodía o noche
+  const horasCocina = (() => {
+    let h = 0;
+    for(let d = 1; d <= dim; d++){
+      const hayMed = emps.some(e => (shifts[e.id]?.[d]||["libre"]).includes("mediodia"));
+      const hayNoc = emps.some(e => (shifts[e.id]?.[d]||["libre"]).includes("noche"));
+      if(hayMed) h += 6.5;
+      if(hayNoc) h += 6;
+    }
+    return parseFloat(h.toFixed(1));
+  })();
+
+  const datosCamareros = emps
+    .filter(e => e.id !== 11)
+    .map(e => {
+      const s = statsEmp(e.id);
+      const horasPropina = parseFloat(s.hTot.toFixed(1));
+      return { id: e.id, name: e.name, color: e.color, horas: horasPropina, dias: s.dTot, esCocina: false };
+    })
+    .filter(d => d.horas > 0);
+
+  const datos = [
+    ...datosCamareros,
+    ...(horasCocina > 0 ? [{ id:"cocina", name:"Cocina", color:"#5D4037", horas: horasCocina, dias: null, esCocina: true }] : [])
+  ].sort((a, b) => b.horas - a.horas);
+
+  const totalHoras = datos.reduce((s, d) => s + d.horas, 0);
+  const bolsaNum = parseFloat(bolsa) || 0;
+
+  if (datos.length === 0) return null;
+
+  return (
+    <div style={{ background:"#fff",borderRadius:16,padding:20,marginBottom:24,boxShadow:"0 2px 12px rgba(0,0,0,.06)" }}>
+      <div style={{ fontWeight:800,fontSize:16,marginBottom:4 }}>🪙 Reparto de propinas — {mes} {anio}</div>
+      <div style={{ fontSize:13,color:"#888",marginBottom:18 }}>Porcentaje basado en horas totales trabajadas. Introduce la bolsa total para ver el reparto exacto.</div>
+
+      {/* Entrada bolsa */}
+      <div style={{ display:"flex",alignItems:"center",gap:10,marginBottom:20 }}>
+        <div style={{ flex:1,position:"relative" }}>
+          <input
+            type="number" min="0" step="0.01"
+            value={bolsa}
+            onChange={e=>{ setBolsa(e.target.value); if(parseFloat(e.target.value)>0) onSavePropinas(mk, parseFloat(e.target.value)); else onSavePropinas(mk, null); }}
+            placeholder="Total de propinas del mes..."
+            style={{ width:"100%",border:"1.5px solid #e0e0e0",borderRadius:10,padding:"10px 40px 10px 14px",fontSize:15,outline:"none",fontFamily:"inherit",boxSizing:"border-box" }}
+          />
+          <span style={{ position:"absolute",right:12,top:"50%",transform:"translateY(-50%)",color:"#aaa",fontWeight:700 }}>€</span>
+        </div>
+        {bolsaNum>0&&<div style={{ fontSize:13,color:"#2D6A4F",fontWeight:700,whiteSpace:"nowrap",display:"flex",alignItems:"center",gap:6 }}><span>✅</span><span>Guardado: {bolsaNum.toFixed(2)}€</span></div>}
+      </div>
+
+      {/* Barras por empleado */}
+      <div style={{ display:"flex",flexDirection:"column",gap:10 }}>
+        {datos.map((emp)=>{
+          const pct = totalHoras > 0 ? (emp.horas / totalHoras) * 100 : 0;
+          const cantidad = bolsaNum > 0 ? (pct / 100) * bolsaNum : null;
+          return (
+            <div key={emp.id}>
+              <div style={{ display:"flex",alignItems:"center",gap:10,marginBottom:4 }}>
+                <div style={{ width:28,height:28,borderRadius:"50%",background:emp.color,display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontWeight:800,fontSize:12,flexShrink:0 }}>{emp.esCocina?"🍳":emp.name.charAt(0)}</div>
+                <div style={{ flex:1 }}>
+                  <div style={{ fontWeight:700,fontSize:14 }}>{emp.name}{emp.esCocina&&<span style={{ fontSize:11,color:"#aaa",fontWeight:400,marginLeft:6 }}>todos los servicios</span>}</div>
+                  {!emp.esCocina&&<div style={{ fontSize:11,color:"#aaa" }}>{emp.dias} días</div>}
+                </div>
+                <div style={{ fontSize:12,color:"#888" }}>{parseFloat(emp.horas.toFixed(1))}h</div>
+                <div style={{ fontWeight:800,fontSize:15,color:emp.color,minWidth:48,textAlign:"right" }}>{pct.toFixed(1)}%</div>
+                {cantidad!==null&&<div style={{ fontWeight:900,fontSize:15,color:"#2D6A4F",minWidth:64,textAlign:"right" }}>{cantidad.toFixed(2)}€</div>}
+              </div>
+              <div style={{ background:"#f0f0f0",borderRadius:6,height:10,overflow:"hidden" }}>
+                <div style={{ width:`${pct}%`,height:"100%",background:emp.color,borderRadius:6,transition:"width .4s" }}/>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Total horas + progreso entrega */}
+      <div style={{ marginTop:16,paddingTop:14,borderTop:"1px solid #f0f0f0" }}>
+        <div style={{ display:"flex",justifyContent:"space-between",fontSize:13,color:"#aaa",marginBottom:8 }}>
+          <span>Total horas del equipo este mes</span>
+          <span style={{ fontWeight:700,color:"#1B2432" }}>{parseFloat(totalHoras.toFixed(1))}h</span>
+        </div>
+        <div style={{ display:"flex",justifyContent:"space-between",fontSize:13,color:"#aaa" }}>
+          <span>Propinas entregadas</span>
+          <span style={{ fontWeight:700,color:Object.values(entregado).filter(v=>v?.ya).length===datos.length?"#2D6A4F":"#E07A5F" }}>
+            {Object.values(entregado).filter(v=>v?.ya).length} / {datos.length}
+            {Object.values(entregado).filter(v=>v?.ya).length===datos.length&&" ✅ Completo"}
+          </span>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 /* ─── CONFIGURADOR DE TARIFAS ────────────────────────────────────────────── */
 function TarifasConfig({ emps, tarifas, onSave }) {
@@ -437,9 +556,10 @@ function TarifasConfig({ emps, tarifas, onSave }) {
     { key:"noche",    label:"🌙 Noche"    },
   ];
   const DIAS_TIPO = [
-    { key:"lab",     label:"Laborable" },
-    { key:"finde",   label:"Fin de semana" },
-    { key:"festivo", label:"Festivo" },
+    { key:"lab",     label:"Laborable",      turnos:["manana","mediodia","noche"] },
+    { key:"viernes", label:"Viernes noche",  turnos:["noche"] },
+    { key:"finde",   label:"Fin de semana",  turnos:["manana","mediodia","noche"] },
+    { key:"festivo", label:"Festivo",        turnos:["manana","mediodia","noche"] },
   ];
 
   const base = tarifas["base"] || TARIFAS_DEFAULT;
@@ -456,6 +576,7 @@ function TarifasConfig({ emps, tarifas, onSave }) {
             <tr style={{ background:"#F4F1EC" }}>
               <th style={{ padding:"8px 12px",textAlign:"left",fontWeight:700 }}>Turno</th>
               <th style={{ padding:"8px 12px",textAlign:"center",fontWeight:700 }}>📅 Laborable</th>
+              <th style={{ padding:"8px 12px",textAlign:"center",fontWeight:700,color:"#E65100" }}>🍊 Viernes noche</th>
               <th style={{ padding:"8px 12px",textAlign:"center",fontWeight:700 }}>📅 Fin semana</th>
               <th style={{ padding:"8px 12px",textAlign:"center",fontWeight:700 }}>🔴 Festivo</th>
             </tr>
@@ -464,9 +585,9 @@ function TarifasConfig({ emps, tarifas, onSave }) {
             {TIPOS.map(({key,label})=>(
               <tr key={key} style={{ borderBottom:"1px solid #f5f5f5" }}>
                 <td style={{ padding:"10px 12px",fontWeight:600 }}>{label}</td>
-                {["lab","finde","festivo"].map(d=>(
-                  <td key={d} style={{ padding:"10px 12px",textAlign:"center",fontWeight:700,color:"#2D6A4F" }}>
-                    {(base[key]?.[d]||0).toFixed(2)}€
+                {["lab","viernes","finde","festivo"].map(d=>(
+                  <td key={d} style={{ padding:"10px 12px",textAlign:"center",fontWeight:700,color:d==="viernes"?"#E65100":"#2D6A4F" }}>
+                    {key!=="noche"&&d==="viernes"?"—":(base[key]?.[d]||0).toFixed(2)+"€"}
                   </td>
                 ))}
               </tr>
@@ -503,7 +624,7 @@ function TarifasConfig({ emps, tarifas, onSave }) {
               <div key={key} style={{ marginBottom:18 }}>
                 <div style={{ fontWeight:700,fontSize:14,marginBottom:10 }}>{label}</div>
                 <div style={{ display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:10 }}>
-                  {DIAS_TIPO.map(({key:dk,label:dl})=>(
+                  {DIAS_TIPO.filter(({turnos})=>turnos.includes(key)).map(({key:dk,label:dl})=>(
                     <div key={dk}>
                       <label style={{ fontSize:11,fontWeight:700,color:"#888",display:"block",marginBottom:4 }}>{dl}</label>
                       <div style={{ display:"flex",alignItems:"center",gap:4 }}>
@@ -548,7 +669,9 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const [tarifas, setTarifas] = useState({});
   const [disponibilidad, setDisponibilidad] = useState({});
-  const [reservas, setReservas] = useState([]); // { empId: { "YYYY_MM": { day: true/false } } } // { empId: { manana:{lab,finde,festivo}, mediodia:{...}, noche:{...} } }
+  const [reservas, setReservas] = useState([]);
+  const [otrosNombres, setOtrosNombres] = useState({});
+  const [propinasMes, setPropinasMes] = useState({}); // { YYYY_MM: euros } // { empId: { "YYYY_MM": { day: true/false } } } // { empId: { manana:{lab,finde,festivo}, mediodia:{...}, noche:{...} } }
   const [festivos, setFestivos] = useState([]);  // array de strings "YYYY-MM-DD"
 
   // ── Cargar y escuchar cambios en Firebase en tiempo real ──────────────────
@@ -570,10 +693,22 @@ export default function App() {
         });
         setShifts(fixed);
       } else {
-        // Primer acceso a este mes: inicializar todo libre en Firebase
-        const init = genShiftsLibre(emps, year, month);
-        set(ref(db,`turnos/${mk}`), init);
-        setShifts(init);
+        // Solo inicializar si nunca hubo datos (no si Firebase devolvió null temporalmente)
+        // Usamos un flag para saber si ya se inicializó este mes
+        const metaRef = ref(db, `turnosMeta/${mk}/inicializado`);
+        import("firebase/database").then(({get})=>{
+          get(metaRef).then(metaSnap=>{
+            if(!metaSnap.val()){
+              // Primer acceso real: inicializar y marcar como inicializado
+              const init = genShiftsLibre(emps, year, month);
+              set(ref(db,`turnos/${mk}`), init);
+              set(metaRef, true);
+              setShifts(init);
+            }
+            // Si ya estaba inicializado, dejamos shifts vacío (Firebase tendrá los datos pronto)
+          });
+        });
+        setShifts({});
       }
       setLoading(false);
     });
@@ -589,6 +724,14 @@ export default function App() {
       const data=snap.val();
       setFestivos(data?Object.values(data):[]);
     });
+    // Propinas por mes
+    const propRef = ref(db, "propinas");
+    const unsubProp = onValue(propRef, snap=>{ setPropinasMes(snap.val()||{}); });
+
+    // Otros nombres
+    const otrosRef = ref(db, "otrosNombres");
+    const unsubOtros = onValue(otrosRef, snap=>{ setOtrosNombres(snap.val()||{}); });
+
     // Reservas
     const resRef = ref(db, "reservas");
     const unsubRes = onValue(resRef, snap=>{ const d=snap.val(); setReservas(d?Object.values(d):[]); });
@@ -603,7 +746,7 @@ export default function App() {
       const data=snap.val();
       setTarifas(data||{});
     });
-    return ()=>{ unsubShifts(); unsubCambios(); unsubFestivos(); unsubTarifas(); unsubDisp(); unsubRes(); };
+    return ()=>{ unsubShifts(); unsubCambios(); unsubFestivos(); unsubTarifas(); unsubDisp(); unsubRes(); unsubOtros(); unsubProp(); };
   }, [year, month]);
 
   // ── Si es empleado → vista reducida ──────────────────────────────────────
@@ -625,7 +768,8 @@ export default function App() {
 
   // ── Admin / Visor ─────────────────────────────────────────────────────────
   const canEdit    = user.rol !== "visor";
-  const canSeeHoras = user.usuario==="javier"||user.usuario==="jaime";
+  const canSeeHoras    = user.usuario==="javier"||user.usuario==="jaime"||user.usuario==="noelia";
+  const canSeeSalarios = user.usuario==="javier"||user.usuario==="jaime"||user.usuario==="noelia";
   const dim = daysInMonth(year,month);
   const fd  = firstDayOfMonth(year,month);
 
@@ -643,6 +787,18 @@ export default function App() {
     setTarifas(newTar);
     set(ref(db,"tarifas"), newTar);
   }
+  function savePropinas(mk, euros){
+    setPropinasMes(prev=>({...prev,[mk]:euros}));
+    set(ref(db,`propinas/${mk}`), euros||null);
+  }
+  function toggleEntregado(mk, empId){
+    const cur=propinasMes?.[mk]?.entregado?.[empId]?.ya;
+    set(ref(db,`propinas/${mk}/entregado/${empId}/ya`), !cur);
+  }
+  function saveOtrosNombre(mk, day, nombre){
+    setOtrosNombres(prev=>({...prev,[mk]:{...(prev[mk]||{}),[day]:nombre}}));
+    set(ref(db,`otrosNombres/${mk}/${day}`), nombre||null);
+  }
   function saveReserva(r){
     set(ref(db,`reservas/${r.id}`), r);
   }
@@ -655,6 +811,8 @@ export default function App() {
   }
 
   function notify(msg,type="ok"){ setNotif({msg,type}); setTimeout(()=>setNotif(null),3000); }
+  const OTROS_ID = 11;
+  function otrosLabel(day){ const mk=mesKey(year,month); return otrosNombres?.[mk]?.[day]||"Otros"; }
 
   function goMonth(dir){
     let m=month+dir, y=year;
@@ -670,11 +828,12 @@ export default function App() {
     // Registrar cambio automático si el turno realmente cambió Y el mes está completo
     const antLabel=anterior.filter(t=>t!=="libre").map(t=>TURNOS[t]?.label).join("+")||"Libre";
     const newLabel=arr.filter(t=>t!=="libre").map(t=>TURNOS[t]?.label).join("+")||"Libre";
-    const mesCompleto=(()=>{ for(let d=1;d<=dim;d++){ if(emps.every(e=>esLibre(shifts[e.id]?.[d]))) return false; } return true; })();
+    const mesCompleto=(()=>{ const empsReales=emps.filter(e=>e.id!==OTROS_ID); for(let d=1;d<=dim;d++){ if(empsReales.every(e=>esLibre(shifts[e.id]?.[d]))) return false; } return true; })();
     if(antLabel!==newLabel && mesCompleto){
       const emp=emps.find(e=>e.id===empId);
       const id=Date.now();
-      set(ref(db,`cambios/${id}`),{id,tipo:"auto",fecha:`${day}/${month+1}/${year}`,emp:emp?.name,de:antLabel,a:newLabel,por:user.nombre});
+      const ahora=new Date(id); const cuando=`${ahora.toLocaleDateString('es-ES')} ${ahora.toLocaleTimeString('es-ES',{hour:'2-digit',minute:'2-digit'})}`;
+      set(ref(db,`cambios/${id}`),{id,tipo:"auto",fecha:`${day}/${month+1}/${year}`,emp:emp?.name,de:antLabel,a:newLabel,por:user.nombre,cuando});
     }
     setModal(null); notify("✅ Turno guardado");
   }
@@ -711,6 +870,9 @@ export default function App() {
 
   function deleteEmp(id){
     setEmps(prev=>prev.filter(e=>e.id!==id));
+    // Limpiar turnos de Firebase para este mes
+    const mk=mesKey(year,month);
+    set(ref(db,`turnos/${mk}/${id}`), null);
     setDelConf(null); notify("🗑️ Empleado eliminado","warn");
   }
 
@@ -719,6 +881,7 @@ export default function App() {
     {id:"calendario",label:"📅 Calendario"},
     {id:"tabla",label:"📊 Tabla"},
     ...(canSeeHoras?[{id:"horas",label:"⏱️ Horas"}]:[]),
+    ...(canSeeSalarios?[{id:"stats",label:"📊 Estadísticas"}]:[]),
     {id:"cambios",label:"🔄 Cambios"},
     {id:"reservas",label:"📞 Reservas"},
     {id:"disponibilidad",label:"🗓️ Disponibilidad"},
@@ -760,7 +923,7 @@ export default function App() {
 
       const grupos = {};
       trabajando.forEach(e=>{
-        (shifts[e.id][d]||["libre"]).filter(t=>t!=="libre").forEach(t=>{
+        (shifts[e.id]?.[d]||["libre"]).filter(t=>t!=="libre").forEach(t=>{
           if(!grupos[t]) grupos[t]=[];
           grupos[t].push(e.name);
         });
@@ -842,6 +1005,15 @@ export default function App() {
   function imprimirDia(){ imprimirSemana(Array.from({length:dim},(_,i)=>i+1)); }
 
   function ViewDia(){
+    const todayRef = useRef(null);
+    useEffect(()=>{
+      const t = setTimeout(()=>{
+        if(todayRef.current){
+          todayRef.current.scrollIntoView({ behavior:"smooth", block:"start" });
+        }
+      }, 200);
+      return ()=>clearTimeout(t);
+    }, []); // [] = solo al montar, no en re-renders
     return (
       <div>
       <div style={{ display:"flex",alignItems:"center",gap:8,marginBottom:12,flexWrap:"wrap" }}>
@@ -864,8 +1036,19 @@ export default function App() {
           const trabajando=emps.filter(e=>!esLibre(shifts[e.id]?.[day]));
           const medC=trabajando.filter(e=>(shifts[e.id]?.[day]||[]).some(t=>t==="mediodia")).length;
           const nocC=trabajando.filter(e=>(shifts[e.id]?.[day]||[]).some(t=>t==="noche")).length;
+          // Ordenar: mañana > mañana+mediodía > mediodía > mediodía+noche > noche
+          function ordenTurno(arr){
+            const m=arr.includes("manana"), med=arr.includes("mediodia"), n=arr.includes("noche");
+            if(m&&!med&&!n) return 0;   // solo mañana
+            if(m&&med)      return 1;   // mañana + mediodía
+            if(med&&!n&&!m) return 2;   // solo mediodía
+            if(med&&n)      return 3;   // mediodía + noche
+            if(n&&!med&&!m) return 4;   // solo noche
+            return 5;
+          }
+          const trabajandoOrdenado=[...trabajando].sort((a,b)=>ordenTurno(shifts[a.id]?.[day]||[])-ordenTurno(shifts[b.id]?.[day]||[]));
           return (
-            <div key={day} style={{ background:"#fff",borderRadius:14,overflow:"hidden",boxShadow:isToday?"0 0 0 2px #E07A5F,0 4px 16px rgba(0,0,0,.1)":"0 2px 10px rgba(0,0,0,.06)",border:isToday?"2px solid #E07A5F":"2px solid transparent" }}>
+            <div key={day} ref={isToday?todayRef:null} style={{ background:"#fff",borderRadius:14,overflow:"hidden",boxShadow:isToday?"0 0 0 2px #E07A5F,0 4px 16px rgba(0,0,0,.1)":"0 2px 10px rgba(0,0,0,.06)",border:isToday?"2px solid #E07A5F":"2px solid transparent" }}>
               <div style={{ padding:"10px 14px",background:isToday?"#E07A5F":isWe?"#1B2432":"#2a3244",color:"#fff",display:"flex",alignItems:"center",gap:8 }}>
                 <span style={{ fontWeight:900,fontSize:18 }}>{day}</span>
                 <span style={{ fontSize:13,opacity:.8 }}>{DIAS[dow]}</span>
@@ -885,10 +1068,10 @@ export default function App() {
               </div>
               <div style={{ padding:"10px 12px",display:"flex",flexDirection:"column",gap:5,minHeight:50 }}>
                 {trabajando.length===0?<div style={{ color:"#ccc",fontSize:12,textAlign:"center",padding:"6px 0" }}>Sin asignar</div>
-                :trabajando.map(e=>{ const eArr=shifts[e.id]?.[day]||["libre"], eInfo=abrDia(eArr);
+                :trabajandoOrdenado.map(e=>{ const eArr=shifts[e.id]?.[day]||["libre"], eInfo=abrDia(eArr); const empDisplay=e.id===OTROS_ID?otrosLabel(day):e.name;
                   return <div key={e.id} onClick={()=>canEdit&&setModal({empId:e.id,day})} style={{ display:"flex",alignItems:"center",gap:7,cursor:canEdit?"pointer":"default",padding:"4px 7px",borderRadius:7,background:eInfo.bg }} onMouseEnter={x=>canEdit&&(x.currentTarget.style.opacity=".75")} onMouseLeave={x=>x.currentTarget.style.opacity="1"}>
-                    <div style={{ width:24,height:24,borderRadius:"50%",background:e.color,display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontWeight:800,fontSize:11,flexShrink:0 }}>{e.name.charAt(0)}</div>
-                    <span style={{ fontWeight:600,fontSize:12,flex:1 }}>{e.name}</span>
+                    <div style={{ width:24,height:24,borderRadius:"50%",background:e.color,display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontWeight:800,fontSize:11,flexShrink:0 }}>{empDisplay.charAt(0)}</div>
+                    <span style={{ fontWeight:600,fontSize:12,flex:1 }}>{empDisplay}</span>
                     <span style={{ fontSize:11,fontWeight:700,color:eInfo.color }}>{eInfo.emoji} {eArr.filter(t=>t!=="libre").map(t=>TURNOS[t]?.abr).join("+")}</span>
                   </div>; })}
                 {emps.filter(e=>esLibre(shifts[e.id]?.[day])).length>0&&(
@@ -979,20 +1162,21 @@ export default function App() {
   function ViewHoras(){
     // Calcular estadísticas detalladas por empleado
     function statsEmp(empId){
-      let hTot=0, hMan=0, hMed=0, hNoc=0, hExtra=0;
+      let hTot=0, hMan=0, hMed=0, hNoc=0, hFinde=0, hFestivo=0;
       let dTot=0, dFinde=0, dFestivo=0, dLab=0;
       let dManana=0, dMediodia=0, dNoche=0;
       for(let d=1;d<=dim;d++){
         const arr=shifts[empId]?.[d]||["libre"];
         if(esLibre(arr)) continue;
         const dow=dowIndex(year,month,d);
-        const finde=dow>=5;
         const fest=esFestivo(d);
+        const finde=dow>=5&&!fest; // finde solo si NO es festivo
         const h=horasDia(arr);
         hTot+=h;
         dTot++;
-        if(finde||fest){ if(fest) dFestivo++; else dFinde++; hExtra+=h; }
-        else dLab++;
+        if(fest){ dFestivo++; hFestivo+=h; }
+        else if(finde){ dFinde++; hFinde+=h; }
+        else { dLab++; }
         arr.filter(t=>t!=="libre").forEach(t=>{
           if(t==="manana")        { hMan+=TURNOS.manana.horas;   dManana++; }
           else if(t==="mediodia") { hMed+=TURNOS.mediodia.horas; dMediodia++; }
@@ -1001,7 +1185,6 @@ export default function App() {
       }
       // Calcular salario estimado
       function getTar(tipo, tipoDia){
-        // Priority: employee override > customized base > hardcoded default
         const empTar=tarifas[empId]?.[tipo];
         const baseTar=tarifas["base"]?.[tipo];
         const defTar=TARIFAS_DEFAULT[tipo];
@@ -1013,11 +1196,15 @@ export default function App() {
         const arr=shifts[empId]?.[d]||["libre"];
         if(esLibre(arr)) continue;
         const dow=dowIndex(year,month,d);
-        const finde=dow>=5, fest=esFestivo(d);
-        const tipoDia=fest?"festivo":finde?"finde":"lab";
-        arr.filter(t=>t!=="libre"&&TURNOS[t]).forEach(t=>{ salario+=getTar(t,tipoDia); });
+        const fest=esFestivo(d);
+        const finde=dow>=5&&!fest;
+        const esViernes=dow===4&&!fest; // viernes no festivo
+        arr.filter(t=>t!=="libre"&&TURNOS[t]).forEach(t=>{
+          const tipoDia=fest?"festivo":finde?"finde":(esViernes&&t==="noche")?"viernes":"lab";
+          salario+=getTar(t,tipoDia);
+        });
       }
-      return {hTot,hMan,hMed,hNoc,hExtra,dTot,dFinde,dFestivo,dLab,dManana,dMediodia,dNoche,salario};
+      return {hTot,hMan,hMed,hNoc,hFinde,hFestivo,dTot,dFinde,dFestivo,dLab,dManana,dMediodia,dNoche,salario};
     }
 
     const statRow = (label,val,color,sub) => (
@@ -1064,13 +1251,55 @@ export default function App() {
       )}
 
       {/* Configuración de tarifas — solo admin */}
-      {user.rol==="admin"&&<TarifasConfig emps={emps} tarifas={tarifas} onSave={saveTarifas}/>}
+
+      {/* ── Reparto de propinas ─────────────────────────────── */}
+      <PropinasWidget emps={emps} shifts={shifts} dim={dim} statsEmp={statsEmp} mes={MESES[month]} anio={year} mk={mesKey(year,month)} propinasMes={propinasMes} onSavePropinas={savePropinas} propinasMk={propinasMes?.[mesKey(year,month)]} onToggleEntregado={toggleEntregado}/>
+
+      {user.rol==="admin"&&canSeeSalarios&&<TarifasConfig emps={emps} tarifas={tarifas} onSave={saveTarifas}/>}
 
       {/* Tarjetas por empleado */}
       <div style={{ display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(300px,1fr))",gap:14 }}>
         {emps.map(emp=>{
-          const {hTot,hMan,hMed,hNoc,hExtra,dTot,dFinde,dFestivo,dLab,dManana,dMediodia,dNoche,salario}=statsEmp(emp.id);
+          const {hTot,hMan,hMed,hNoc,hFinde,hFestivo,dTot,dFinde,dFestivo,dLab,dManana,dMediodia,dNoche,salario}=statsEmp(emp.id);
           const pct=Math.min(100,Math.round((hTot/130)*100));
+
+          // Para "Otros": mostrar desglose por nombre
+          if(emp.id===OTROS_ID){
+            const mk=mesKey(year,month);
+            const nombresDelMes={}; // { nombre: {dias,horas} }
+            for(let d=1;d<=dim;d++){
+              const arr=shifts[emp.id]?.[d]||["libre"];
+              if(esLibre(arr)) continue;
+              const nombre=otrosNombres?.[mk]?.[d]||"Sin nombre";
+              const h=horasDia(arr);
+              if(!nombresDelMes[nombre]) nombresDelMes[nombre]={dias:0,horas:0};
+              nombresDelMes[nombre].dias++;
+              nombresDelMes[nombre].horas+=h;
+            }
+            const nombresArr=Object.entries(nombresDelMes).sort((a,b)=>b[1].dias-a[1].dias);
+            return <div key={emp.id} style={{ background:"#fff",borderRadius:18,padding:20,boxShadow:"0 2px 12px rgba(0,0,0,.06)" }}>
+              <div style={{ display:"flex",alignItems:"center",gap:12,marginBottom:16 }}>
+                <div style={{ width:44,height:44,borderRadius:"50%",background:emp.color,display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontWeight:900,fontSize:19,flexShrink:0 }}>+</div>
+                <div><div style={{ fontWeight:800,fontSize:16 }}>Extras (Otros)</div><div style={{ fontSize:12,color:"#aaa" }}>{MESES[month]} {year} · {dTot} días · {parseFloat(hTot.toFixed(1))}h</div></div>
+              </div>
+              {nombresArr.length===0?(
+                <div style={{ fontSize:13,color:"#ccc",textAlign:"center",padding:"20px 0" }}>Sin extras registrados este mes</div>
+              ):(
+                <div style={{ display:"flex",flexDirection:"column",gap:8 }}>
+                  {nombresArr.map(([nombre,stats])=>(
+                    <div key={nombre} style={{ background:"#F8F9FA",borderRadius:11,padding:"10px 14px",display:"flex",alignItems:"center",gap:12 }}>
+                      <div style={{ width:36,height:36,borderRadius:"50%",background:emp.color,display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontWeight:800,fontSize:14,flexShrink:0 }}>{nombre.charAt(0).toUpperCase()}</div>
+                      <div style={{ flex:1 }}>
+                        <div style={{ fontWeight:700,fontSize:14 }}>{nombre}</div>
+                        <div style={{ fontSize:12,color:"#aaa",marginTop:2 }}>{stats.dias} día{stats.dias!==1?"s":""} · {parseFloat(stats.horas.toFixed(1))}h</div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>;
+          }
+
           return <div key={emp.id} style={{ background:"#fff",borderRadius:18,padding:20,boxShadow:"0 2px 12px rgba(0,0,0,.06)" }}>
             {/* Cabecera */}
             <div style={{ display:"flex",alignItems:"center",gap:12,marginBottom:16 }}>
@@ -1090,11 +1319,11 @@ export default function App() {
               <div style={{ background:"#eee",borderRadius:6,height:8,overflow:"hidden" }}><div style={{ width:`${pct}%`,height:"100%",background:emp.color,borderRadius:6,transition:"width .5s" }}/></div>
             </div>
 
-            {/* Salario estimado */}
-            <div style={{ background:"#1B2432",borderRadius:12,padding:"12px 16px",marginBottom:12,display:"flex",justifyContent:"space-between",alignItems:"center" }}>
+            {/* Salario estimado — solo Javier y Jaime */}
+            {canSeeSalarios&&<div style={{ background:"#1B2432",borderRadius:12,padding:"12px 16px",marginBottom:12,display:"flex",justifyContent:"space-between",alignItems:"center" }}>
               <span style={{ fontSize:13,color:"#aaa",fontWeight:600 }}>💰 Salario estimado</span>
               <span style={{ fontSize:22,fontWeight:900,color:"#81B29A" }}>{salario.toFixed(2)}€</span>
-            </div>
+            </div>}
 
             {/* Desglose por tipo de turno */}
             <div style={{ background:"#F8F9FA",borderRadius:12,padding:"10px 14px",marginBottom:12 }}>
@@ -1108,12 +1337,12 @@ export default function App() {
             {/* Desglose por tipo de día */}
             <div style={{ background:"#F8F9FA",borderRadius:12,padding:"10px 14px" }}>
               <div style={{ fontSize:11,fontWeight:700,color:"#aaa",marginBottom:8,letterSpacing:.5 }}>DÍAS POR TIPO</div>
-              {statRow("📅 Laborables", dLab, "#2D6A4F", `(${parseFloat((hTot-hExtra).toFixed(1))}h)`)}
-              {statRow("📅 Fines de semana", dFinde, "#1565C0", `(${parseFloat(((hExtra/(dFinde+dFestivo)||0)*dFinde).toFixed(1))}h)`)}
-              {statRow("🔴 Festivos", dFestivo, "#C62828", `(${parseFloat(((hExtra/(dFinde+dFestivo)||0)*dFestivo).toFixed(1))}h)`)}
+              {statRow("📅 Laborables", dLab, "#2D6A4F", `(${parseFloat((hTot-hFinde-hFestivo).toFixed(1))}h)`)}
+              {statRow("📅 Fines de semana", dFinde, "#1565C0", `(${parseFloat(hFinde.toFixed(1))}h)`)}
+              {statRow("🔴 Festivos", dFestivo, "#C62828", `(${parseFloat(hFestivo.toFixed(1))}h)`)}
               {(dFinde>0||dFestivo>0)&&(
                 <div style={{ marginTop:8,padding:"6px 10px",background:"#FFF8E1",borderRadius:8,fontSize:12,fontWeight:700,color:"#E65100",display:"flex",justifyContent:"space-between" }}>
-                  <span>⚡ Horas fin sem. + festivos</span><span>{parseFloat(hExtra.toFixed(1))}h</span>
+                  <span>⚡ Horas fin sem. + festivos</span><span>{parseFloat((hFinde+hFestivo).toFixed(1))}h</span>
                 </div>
               )}
             </div>
@@ -1579,6 +1808,219 @@ export default function App() {
     );
   }
 
+
+  /* ─── VISTA ESTADÍSTICAS ─────────────────────────────────────────────── */
+  function ViewStats(){
+    const [historial, setHistorial] = useState(null); // { YYYY_MM: { empId: horas } }
+    const [cargando, setCargando] = useState(false);
+
+    // ── Cargar histórico de horas (últimos 6 meses) ────────────────────
+    async function cargarHistorico(){
+      setCargando(true);
+      const { get: fbGet } = await import("firebase/database");
+      const meses = [];
+      for(let i=5;i>=0;i--){
+        const d=new Date(year,month-i,1);
+        meses.push({
+          label:`${MESES[d.getMonth()].slice(0,3)} ${d.getFullYear()}`,
+          mk:`${d.getFullYear()}_${String(d.getMonth()+1).padStart(2,"0")}`
+        });
+      }
+      const resultado = {};
+      for(const {mk,label} of meses){
+        const snap = await fbGet(ref(db,`turnos/${mk}`));
+        const data = snap.val()||{};
+        resultado[mk] = { label };
+        emps.filter(e=>e.id!==OTROS_ID).forEach(e=>{
+          let h=0;
+          const empData=data[e.id]||{};
+          Object.values(empData).forEach(arr=>{
+            if(Array.isArray(arr)&&!arr.includes("libre")){
+              arr.forEach(t=>{ if(TURNOS[t]) h+=TURNOS[t].horas; });
+            }
+          });
+          resultado[mk][e.id]=parseFloat(h.toFixed(1));
+        });
+      }
+      setHistorial(resultado);
+      setCargando(false);
+    }
+
+    // ── Generar PDF resumen mensual ────────────────────────────────────
+    function generarPDF(){
+      const mesesStr=["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];
+      const mes=mesesStr[month], anio=year;
+
+      // Stats por empleado
+      const filas = emps.filter(e=>e.id!==OTROS_ID).map(e=>{
+        let hTot=0,hMed=0,hNoc=0,dTot=0,salario=0;
+        for(let d=1;d<=dim;d++){
+          const arr=shifts[e.id]?.[d]||["libre"];
+          if(arr.includes("libre")&&arr.length===1) continue;
+          const dow=dowIndex(year,month,d);
+          const fest=esFestivo(d), finde=dow>=5&&!fest, esV=dow===4&&!fest;
+          let h=0;
+          arr.filter(t=>t!=="libre"&&TURNOS[t]).forEach(t=>{
+            h+=TURNOS[t].horas;
+            if(t==="mediodia") hMed+=TURNOS[t].horas;
+            if(t==="noche") hNoc+=TURNOS[t].horas;
+            const empTar=tarifas[e.id]?.[t];
+            const baseTar=tarifas["base"]?.[t];
+            const defTar=TARIFAS_DEFAULT[t];
+            const tar=empTar||baseTar||defTar;
+            const td=fest?"festivo":finde?"finde":(esV&&t==="noche")?"viernes":"lab";
+            salario+=tar?.[td]||0;
+          });
+          hTot+=h; dTot++;
+        }
+        const horasProp=parseFloat(hTot.toFixed(1));
+        return { name:e.name, dTot, hTot:parseFloat(hTot.toFixed(1)), horasProp, salario:salario.toFixed(2), color:e.color };
+      }).filter(f=>f.dTot>0).sort((a,b)=>b.hTot-a.hTot);
+
+      const totalHProp=filas.reduce((s,f)=>s+f.horasProp,0);
+      const bolsa=propinasMes?.[mesKey(year,month)]||0;
+
+      const rows=filas.map(f=>{
+        const pct=totalHProp>0?((f.horasProp/totalHProp)*100).toFixed(1):0;
+        const prop=bolsa>0?((f.horasProp/totalHProp)*bolsa).toFixed(2):"-";
+        return `<tr>
+          <td style="padding:10px 14px;font-weight:700;display:flex;align-items:center;gap:8px">
+            <span style="display:inline-block;width:12px;height:12px;border-radius:50%;background:${f.color}"></span>${f.name}
+          </td>
+          <td style="padding:10px 14px;text-align:center">${f.dTot}</td>
+          <td style="padding:10px 14px;text-align:center">${f.hTot}h</td>
+          <td style="padding:10px 14px;text-align:center">${f.salario}€</td>
+          <td style="padding:10px 14px;text-align:center">${pct}%</td>
+          <td style="padding:10px 14px;text-align:center;font-weight:700;color:#2D6A4F">${prop=== "-"?"-":prop+"€"}</td>
+        </tr>`;
+      }).join("");
+
+      const html=`<!DOCTYPE html><html lang="es"><head><meta charset="UTF-8"/>
+        <title>Resumen ${mes} ${anio} — Mesón do Loyo</title>
+        <style>*{box-sizing:border-box;margin:0;padding:0}body{font-family:Arial,sans-serif;color:#1a1a1a}
+        @media print{body{-webkit-print-color-adjust:exact;print-color-adjust:exact}.no-print{display:none}}
+        .hdr{background:#1B2432;color:#fff;padding:20px 28px;display:flex;justify-content:space-between;align-items:center}
+        table{width:100%;border-collapse:collapse}th{background:#2a3244;color:#fff;padding:10px 14px;font-size:12px;text-align:left}
+        tr:nth-child(even){background:#f9f9f9}td{border-bottom:1px solid #eee;font-size:13px}
+        .badge{background:#E07A5F;border-radius:8px;padding:6px 14px;font-size:14px;font-weight:700}
+        </style></head><body>
+        <div class="hdr"><div><h1 style="font-size:20px;font-weight:800">🍽️ Mesón do Loyo — Paradela, Lugo</h1>
+        <p style="font-size:12px;color:#aaa;margin-top:3px">Resumen mensual de ${mes} ${anio}</p></div>
+        <div class="badge">${mes} ${anio}</div></div>
+        <div class="no-print" style="text-align:center;padding:14px">
+          <button onclick="window.print()" style="background:#E07A5F;color:#fff;border:none;border-radius:10px;padding:10px 28px;font-size:15px;font-weight:700;cursor:pointer">🖨️ Imprimir / Guardar PDF</button>
+        </div>
+        <table><thead><tr><th>Empleado</th><th style="text-align:center">Días</th><th style="text-align:center">Horas</th>
+        <th style="text-align:center">Salario est.</th><th style="text-align:center">% propinas</th><th style="text-align:center">Propinas${bolsa>0?" ("+bolsa+"€)":""}</th></tr></thead>
+        <tbody>${rows}</tbody></table>
+        ${bolsa>0?`<div style="padding:16px 28px;font-size:13px;color:#888">Bolsa de propinas registrada: <b>${bolsa}€</b></div>`:""}
+        <div style="padding:14px;text-align:center;font-size:11px;color:#aaa">Generado desde Mesón do Loyo · Gestión de Turnos</div>
+        </body></html>`;
+
+      const win=window.open("","_blank");
+      win.document.write(html);
+      win.document.close();
+    }
+
+    // ── Datos para gráfica de propinas ────────────────────────────────
+    const propEntries=Object.entries(propinasMes||{})
+      .sort(([a],[b])=>a>b?1:-1)
+      .map(([mk,v])=>{
+        const [y,m]=mk.split("_");
+        return { label:`${MESES[parseInt(m)-1].slice(0,3)} ${y}`, val:parseFloat(v)||0 };
+      });
+    const maxProp=propEntries.length>0?Math.max(...propEntries.map(p=>p.val)):0;
+
+    return (
+      <div>
+        <h3 style={{ margin:"0 0 20px",fontWeight:800,fontSize:19 }}>📊 Estadísticas</h3>
+
+        {/* ── PDF RESUMEN MENSUAL ── */}
+        <div style={{ background:"#fff",borderRadius:16,padding:20,marginBottom:20,boxShadow:"0 2px 12px rgba(0,0,0,.06)" }}>
+          <div style={{ fontWeight:800,fontSize:16,marginBottom:4 }}>📄 Resumen mensual</div>
+          <div style={{ fontSize:13,color:"#888",marginBottom:16 }}>Descarga un PDF con días, horas, salario estimado y propinas de {MESES[month]} {year}.</div>
+          <button onClick={generarPDF} style={{ background:"#1B2432",color:"#fff",border:"none",borderRadius:10,padding:"10px 20px",fontWeight:700,cursor:"pointer",fontSize:14 }}>
+            🖨️ Descargar resumen de {MESES[month]} {year}
+          </button>
+        </div>
+
+        {/* ── HISTÓRICO PROPINAS ── */}
+        <div style={{ background:"#fff",borderRadius:16,padding:20,marginBottom:20,boxShadow:"0 2px 12px rgba(0,0,0,.06)" }}>
+          <div style={{ fontWeight:800,fontSize:16,marginBottom:4 }}>🪙 Histórico de propinas</div>
+          <div style={{ fontSize:13,color:"#888",marginBottom:16 }}>Propinas registradas mes a mes.</div>
+          {propEntries.length===0?(
+            <div style={{ color:"#ccc",fontSize:13,textAlign:"center",padding:"24px 0" }}>Aún no hay propinas registradas</div>
+          ):(
+            <div>
+              <div style={{ display:"flex",alignItems:"flex-end",gap:8,height:160,marginBottom:8 }}>
+                {propEntries.map(({label,val})=>(
+                  <div key={label} style={{ flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:4 }}>
+                    <div style={{ fontSize:11,fontWeight:700,color:"#E07A5F" }}>{val>0?val+"€":""}</div>
+                    <div style={{ width:"100%",background:val>0?"#E07A5F":"#f0f0f0",borderRadius:"6px 6px 0 0",height:maxProp>0?`${Math.max(8,(val/maxProp)*120)}px`:"8px",transition:"height .3s" }}/>
+                  </div>
+                ))}
+              </div>
+              <div style={{ display:"flex",gap:8 }}>
+                {propEntries.map(({label})=>(
+                  <div key={label} style={{ flex:1,fontSize:10,color:"#aaa",textAlign:"center",fontWeight:600 }}>{label}</div>
+                ))}
+              </div>
+              <div style={{ marginTop:12,paddingTop:12,borderTop:"1px solid #f0f0f0",display:"flex",justifyContent:"space-between",fontSize:13 }}>
+                <span style={{ color:"#888" }}>Total acumulado</span>
+                <span style={{ fontWeight:700,color:"#E07A5F" }}>{propEntries.reduce((s,p)=>s+p.val,0).toFixed(2)}€</span>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* ── COMPARATIVA HORAS POR MES ── */}
+        <div style={{ background:"#fff",borderRadius:16,padding:20,boxShadow:"0 2px 12px rgba(0,0,0,.06)" }}>
+          <div style={{ fontWeight:800,fontSize:16,marginBottom:4 }}>📅 Comparativa de horas</div>
+          <div style={{ fontSize:13,color:"#888",marginBottom:16 }}>Horas trabajadas por cada camarero en los últimos 6 meses.</div>
+          {!historial?(
+            <button onClick={cargarHistorico} disabled={cargando} style={{ background:"#9B5DE5",color:"#fff",border:"none",borderRadius:10,padding:"10px 20px",fontWeight:700,cursor:"pointer",fontSize:14 }}>
+              {cargando?"⏳ Cargando...":"📥 Cargar datos históricos"}
+            </button>
+          ):(
+            <div style={{ overflowX:"auto" }}>
+              <table style={{ borderCollapse:"separate",borderSpacing:0,width:"100%",fontSize:13 }}>
+                <thead>
+                  <tr style={{ background:"#1B2432",color:"#fff" }}>
+                    <th style={{ padding:"10px 14px",textAlign:"left",position:"sticky",left:0,background:"#1B2432" }}>Empleado</th>
+                    {Object.values(historial).map(({label})=>(
+                      <th key={label} style={{ padding:"10px 14px",textAlign:"center",fontWeight:700 }}>{label}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {emps.filter(e=>e.id!==OTROS_ID).map((emp,ri)=>{
+                    const vals=Object.entries(historial).map(([mk,data])=>data[emp.id]||0);
+                    if(vals.every(v=>v===0)) return null;
+                    const maxV=Math.max(...vals);
+                    return (
+                      <tr key={emp.id} style={{ background:ri%2===0?"#fff":"#fafafa" }}>
+                        <td style={{ padding:"10px 14px",fontWeight:700,position:"sticky",left:0,background:ri%2===0?"#fff":"#fafafa",display:"flex",alignItems:"center",gap:8,boxShadow:"2px 0 6px rgba(0,0,0,.05)" }}>
+                          <div style={{ width:10,height:10,borderRadius:"50%",background:emp.color,flexShrink:0 }}/>
+                          {emp.name}
+                        </td>
+                        {vals.map((v,i)=>(
+                          <td key={i} style={{ padding:"10px 14px",textAlign:"center" }}>
+                            <div style={{ fontWeight:v===maxV?800:400,color:v===maxV?emp.color:"#555" }}>{v>0?v+"h":"—"}</div>
+                          </td>
+                        ))}
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+              <button onClick={()=>setHistorial(null)} style={{ marginTop:12,background:"#f0f0f0",border:"none",borderRadius:8,padding:"6px 14px",cursor:"pointer",fontWeight:600,color:"#666",fontSize:13 }}>✕ Cerrar</button>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
   function ViewCambios(){
     const autoLogs=[...cambios].filter(c=>c.tipo==="auto").reverse();
     const manuales=[...cambios].filter(c=>c.tipo!=="auto").reverse();
@@ -1607,7 +2049,10 @@ export default function App() {
                   <span style={{ background:"#E07A5F22",borderRadius:5,padding:"1px 7px",color:"#E07A5F",fontWeight:700 }}>{c.a}</span>
                 </div>
               </div>
-              <div style={{ fontSize:11,color:"#ccc",whiteSpace:"nowrap" }}>por {c.por}</div>
+              <div style={{ textAlign:"right" }}>
+                <div style={{ fontSize:11,color:"#ccc",whiteSpace:"nowrap" }}>por {c.por}</div>
+                {c.cuando&&<div style={{ fontSize:10,color:"#ddd",marginTop:2 }}>🕐 {c.cuando}</div>}
+              </div>
             </div>
           ))}
         </div>
@@ -1717,12 +2162,13 @@ export default function App() {
         {view==="calendario" && <ViewCalendario/>}
         {view==="tabla"      && <ViewTabla/>}
         {view==="horas"      && canSeeHoras && <ViewHoras/>}
+        {view==="stats"      && canSeeSalarios && <ViewStats/>}
         {view==="cambios"    && <ViewCambios/>}
         {view==="reservas" && <ViewReservas/>}
         {view==="disponibilidad" && <ViewDisponibilidad disponibilidad={disponibilidad}/>}
         {view==="empleados"  && <ViewEmpleados/>}
       </div>
-      {modal&&(()=>{ const emp=emps.find(e=>e.id===modal.empId); return <ModalTurno emp={emp} day={modal.day} month={month} currentArr={shifts[modal.empId]?.[modal.day]||["libre"]} onSave={arr=>saveShift(modal.empId,modal.day,arr)} onClose={()=>setModal(null)}/>; })()}
+      {modal&&(()=>{ const emp=emps.find(e=>e.id===modal.empId); const mk=mesKey(year,month); return <ModalTurno emp={emp} day={modal.day} month={month} currentArr={shifts[modal.empId]?.[modal.day]||["libre"]} onSave={arr=>saveShift(modal.empId,modal.day,arr)} onClose={()=>setModal(null)} esOtros={modal.empId===OTROS_ID} otrosNombre={otrosNombres?.[mk]?.[modal.day]||""} onSaveOtrosNombre={nombre=>saveOtrosNombre(mk,modal.day,nombre)}/>; })()}
       {cambioM&&<ModalCambio emps={emps} dim={dim} month={month} year={year} shifts={shifts} initialEmp1={cambioM.emp1Id} onConfirm={registrarCambio} onClose={()=>setCambioM(null)}/>}
       {delConf&&<div style={S.overlay} onClick={()=>setDelConf(null)}><div style={{ ...S.modal,maxWidth:330 }} onClick={e=>e.stopPropagation()}><div style={{ fontSize:42,textAlign:"center",marginBottom:12 }}>⚠️</div><div style={{ fontWeight:800,fontSize:17,textAlign:"center",marginBottom:8 }}>¿Eliminar empleado?</div><div style={{ color:"#aaa",fontSize:13,textAlign:"center",marginBottom:24 }}>No se puede deshacer.</div><div style={{ display:"flex",gap:10 }}><button onClick={()=>setDelConf(null)} style={{ flex:1,background:"#f0f0f0",border:"none",borderRadius:10,padding:12,cursor:"pointer",fontWeight:600 }}>Cancelar</button><button onClick={()=>deleteEmp(delConf)} style={{ flex:1,background:"#C62828",color:"#fff",border:"none",borderRadius:10,padding:12,cursor:"pointer",fontWeight:700 }}>Eliminar</button></div></div></div>}
       <style>{`@keyframes fadeIn{from{opacity:0;transform:translateY(-8px)}to{opacity:1;transform:translateY(0)}}*{box-sizing:border-box}button:active{transform:scale(.97)}`}</style>
